@@ -1,0 +1,2498 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MC-ERP (Cloud Sync Version)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #f8f9fa; }
+        #view-login { height: 100vh; display: flex; align-items: center; justify-content: center; }
+        #app-container { display: none; padding-bottom: 100px; }
+        .sync-badge { cursor: pointer; }
+        
+        /* 모바일 하단 네비게이션 스타일 */
+        .bottom-nav {
+            position: fixed !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            background: white !important;
+            border-top: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)) !important; /* iOS 하단 여백 대응 */
+            z-index: 99999 !important; /* 최상단 강제 배치 */
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1) !important;
+            transform: translateZ(0);
+        }
+        .nav-btn { border: none; background: none; display: flex; flex-direction: column; align-items: center; color: #6c757d; font-size: 0.75rem; flex: 1; }
+        .nav-btn.active { color: #0d6efd; font-weight: bold; }
+        .nav-icon { font-size: 1.3rem; margin-bottom: 2px; }
+
+        /* 콘텐츠 섹션 제어 */
+        .content-section { display: none; }
+        .content-section.active { display: block; }
+
+        /* 호실 배지 스타일 */
+        .room-badge { font-size: 1rem; padding: 8px 12px; display: inline-flex; align-items: center; }
+        .room-action { cursor: pointer; margin-left: 8px; font-size: 0.9em; color: rgba(255,255,255,0.9); }
+        .room-action:hover { color: #fff; transform: scale(1.2); }
+
+        /* 대시보드 클릭 카드 효과 */
+        .clickable-card { cursor: pointer; transition: transform 0.2s ease-in-out, box-shadow 0.2s; }
+        .clickable-card:hover { transform: translateY(-3px); box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important; }
+        .clickable-card:active { transform: scale(0.98); }
+
+        /* 호실 관리 리스트 스타일 */
+        .room-manage-item { transition: background-color 0.2s; }
+        .room-manage-item:hover { background-color: #f1f3f5; }
+        .vehicle-btn { width: 100%; text-align: left; margin-bottom: 5px; border: 1px solid #dee2e6; background: #fff; padding: 8px; border-radius: 6px; }
+        .vehicle-btn.active { border-color: #0d6efd; background-color: #e7f1ff; font-weight: bold; }
+        .vehicle-btn.empty { color: #adb5bd; }
+
+        .income-text { color: #198754; }
+        .expense-text { color: #dc3545; }
+
+        /* 모달이 하단 탭에 가려지지 않도록 최상단으로 배치 */
+        .modal { z-index: 100005 !important; }
+        .modal-backdrop { z-index: 100004 !important; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. 로그인 화면 (최초 접속 시 표시) -->
+    <div id="view-login" class="container">
+        <div class="card shadow-sm w-100" style="max-width: 400px;">
+            <div class="card-body p-4 text-center">
+                <h3 class="fw-bold text-primary mb-4">🏢 MC-ERP</h3>
+                <form id="login-form">
+                    <div class="mb-3 text-start">
+                        <label class="form-label small fw-bold">아이디</label>
+                        <input type="text" id="login-id" class="form-control" placeholder="사용자 ID" required>
+                    </div>
+                    <div class="mb-4 text-start">
+                        <label class="form-label small fw-bold">비밀번호</label>
+                        <input type="password" id="login-pw" class="form-control" placeholder="비밀번호" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 fw-bold">로그인</button>
+                </form>
+                <p class="text-muted mt-3 small">구글 시트와 연동된 다중 사용자 시스템입니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 메인 앱 컨테이너 (로그인 성공 시 표시) -->
+    <div id="app-container">
+        <!-- 상단 헤더 -->
+        <nav class="navbar navbar-light bg-white shadow-sm sticky-top">
+            <div class="container-fluid d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <button class="navbar-toggler border-0 me-2 p-1" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu">
+                        <span class="navbar-toggler-icon" style="width: 1.2em; height: 1.2em;"></span>
+                    </button>
+                    <span class="navbar-brand mb-0 h1 fw-bold text-primary" style="margin-right: 0.5rem;">MC-ERP</span>
+                    <span id="header-building-name" class="badge bg-primary bg-opacity-10 text-primary border border-primary text-truncate" style="max-width: 140px; display: none;"></span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <!-- 접속자 정보 -->
+                    <span class="badge bg-light text-dark border" id="current-user-display">로그인 안됨</span>
+                    <!-- 동기화 상태 및 버튼 -->
+                    <span class="badge bg-success sync-badge" onclick="syncWithGoogleSheets()">
+                        🔄 <span id="sync-status-text">동기화 완료</span>
+                    </span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 사이드바 메뉴 -->
+        <div class="offcanvas offcanvas-start" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
+            <div class="offcanvas-header bg-primary text-white">
+                <h5 class="offcanvas-title fw-bold" id="sidebarMenuLabel">메뉴</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+            <div class="offcanvas-body">
+                <!-- 계정 관리 -->
+                <h6 class="border-bottom pb-2 mb-3 fw-bold text-primary">👤 계정 관리</h6>
+                <div class="mb-4 px-2">
+                    <p class="mb-1 small text-muted">로그인된 사용자</p>
+                    <strong id="sidebar-user-name" class="d-block fs-5 mb-2">-</strong>
+                    <button class="btn btn-outline-danger btn-sm w-100" onclick="logout()">로그아웃</button>
+                </div>
+
+                <!-- 건물 관리 (신규 추가) -->
+                <h6 class="border-bottom pb-2 mb-3 fw-bold text-info">🏢 건물 관리</h6>
+                <div class="d-grid gap-2 mb-4 px-2">
+                    <button class="btn btn-outline-primary btn-sm text-start" onclick="showBuildingList()">🏢 건물 선택 (로비)</button>
+                    <button class="btn btn-outline-success btn-sm text-start" onclick="showBuildingCreate()">➕ 새 건물 등록</button>
+                </div>
+
+                <!-- 데이터 관리 (아코디언/접기) -->
+                <div class="mb-3">
+                    <h6 class="border-bottom pb-2 mb-2 fw-bold text-success" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#collapseData" aria-expanded="false">
+                        💾 데이터 관리 <span class="float-end text-muted small">▼</span>
+                    </h6>
+                    <div class="collapse" id="collapseData">
+                        <div class="d-grid gap-2 mb-2 px-2 pt-1">
+                            <button class="btn btn-outline-success btn-sm text-start" onclick="syncWithGoogleSheets()">🔄 클라우드 수동 동기화</button>
+                            <button class="btn btn-outline-warning btn-sm text-start" onclick="alert('로컬 데이터 백업 기능 준비중')">📥 로컬 데이터 백업</button>
+                            <button class="btn btn-outline-danger btn-sm text-start" onclick="alert('로컬 데이터 초기화 기능 준비중')">🗑️ 로컬 데이터 초기화</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 작업 히스토리 (아코디언/접기) -->
+                <div class="mb-3">
+                    <h6 class="border-bottom pb-2 mb-2 fw-bold text-secondary" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#collapseHistory" aria-expanded="false">
+                        📜 작업 히스토리 <span class="float-end text-muted small">▼</span>
+                    </h6>
+                    <div class="collapse" id="collapseHistory">
+                        <ul id="sidebar-history-list" class="list-group list-group-flush small pt-1" style="max-height: 250px; overflow-y: auto;">
+                            <li class="list-group-item text-center text-muted border-0">기록이 없습니다.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 메인 콘텐츠 영역 (mcbook.html의 내용을 이식할 자리) -->
+        <div class="container mt-3">
+            
+            <!-- [건물 목록 화면 (메인 로비)] -->
+            <div id="view-building-list" style="display: none;">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h4 class="fw-bold mb-0 text-primary">🏢 내 건물 관리</h4>
+                    <button class="btn btn-success btn-sm fw-bold" onclick="showBuildingCreate()">+ 새 건물 등록</button>
+                </div>
+                <input type="text" id="search-building-lobby" class="form-control mb-3 shadow-sm border-primary" placeholder="건물명, 지역, 별명으로 검색..." onkeyup="filterLobbyBuildings()">
+                <div id="lobby-building-groups">
+                    <!-- JS 렌더링 -->
+                </div>
+            </div>
+
+            <!-- [1단계 화면: 건물 기본 정보] -->
+            <div id="view-step1" style="display: none;">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-primary text-white fw-bold" id="header-step1">1단계: 건물 기본 정보 세팅</div>
+                    <div class="card-body">
+                        <form id="building-form">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">건물명</label>
+                                <input type="text" id="b-name" class="form-control" placeholder="예: 강남타워" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">주소</label>
+                                <input type="text" id="b-address" class="form-control" placeholder="예: 서울시 강남구..." required>
+                            </div>
+                            <div class="row">
+                                <div class="col-6 mb-3">
+                                    <label class="form-label small fw-bold">지역 (그룹화)</label>
+                                    <input type="text" id="b-region" class="form-control" placeholder="예: 서울, 강남구" required>
+                                </div>
+                                <div class="col-6 mb-3">
+                                    <label class="form-label small fw-bold">건물 별명 (선택)</label>
+                                    <input type="text" id="b-alias" class="form-control" placeholder="예: A동, 1호점">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-3 mb-3">
+                                    <label class="form-label small fw-bold">지상 층수</label>
+                                    <input type="number" id="b-floors-up" class="form-control" placeholder="5" required>
+                                </div>
+                                <div class="col-3 mb-3">
+                                    <label class="form-label small fw-bold">지하 층수</label>
+                                    <input type="number" id="b-floors-down" class="form-control" placeholder="0">
+                                </div>
+                                <div class="col-3 mb-3">
+                                    <label class="form-label small fw-bold">연면적</label>
+                                    <input type="number" id="b-area" class="form-control" required>
+                                </div>
+                                <div class="col-3 mb-3">
+                                    <label class="form-label small fw-bold">총 세대수</label>
+                                    <input type="number" id="b-units" class="form-control" required>
+                                </div>
+                            </div>
+                            
+                            <h6 class="mt-2 mb-3 fw-bold text-secondary border-bottom pb-2" style="font-size: 0.9rem;">⚙️ 관리비 부과 기준 설정</h6>
+                            <div class="row bg-light p-2 rounded mb-3 mx-1">
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small fw-bold">1. 부과 방식</label>
+                                    <select id="b-levy-method" class="form-select form-select-sm">
+                                        <option value="1/N">1/N 균등 부과</option>
+                                        <option value="area">면적 비례 부과</option>
+                                    </select>
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small fw-bold">2. 부과 시기</label>
+                                    <select id="b-billing-timing" class="form-select form-select-sm">
+                                        <option value="current">당월 부과 (선불)</option>
+                                        <option value="next">익월 부과 (후불)</option>
+                                    </select>
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small fw-bold">3. 납부 마감일</label>
+                                    <input type="number" id="b-due-day" class="form-control form-control-sm" placeholder="예: 25">
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small fw-bold">4. 연체료율(%)</label>
+                                    <input type="number" id="b-late-fee" class="form-control form-control-sm" placeholder="예: 2" step="0.1">
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">관리실 연락처</label>
+                                <input type="tel" id="b-contact" class="form-control">
+                            </div>
+                            <div class="d-grid gap-2">
+                                <button type="submit" id="btn-save-step1" class="btn btn-primary fw-bold">저장 후 2단계로 이동</button>
+                                <button type="button" class="btn btn-outline-secondary" onclick="cancelStep1()">취소</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- [2단계 화면: 호실 등록] -->
+            <div id="view-step2" style="display: none;">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-success text-white fw-bold d-flex justify-content-between align-items-center">
+                        <span role="button" onclick="showStep(1)" style="font-size: 1.2rem;">&larr;</span>
+                        <span>2단계: 호실 등록</span>
+                        <span role="button" onclick="showStep(3)" style="font-size: 0.9rem;">다음 &rarr;</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <input type="text" id="reg-room-no" class="form-control" placeholder="호실명 입력 (예: 101호)">
+                            <button class="btn btn-outline-success" type="button" onclick="addRoom()">추가</button>
+                        </div>
+                        <div class="mb-3 p-3 bg-light border rounded">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0 small fw-bold">⚡ 층별 호실 자동 생성</h6>
+                                <button class="btn btn-sm btn-primary py-0" onclick="loadFloorSettings()">설정 불러오기</button>
+                            </div>
+                            <div id="floor-config-area" class="mt-2" style="display:none;"></div>
+                        </div>
+                        <div id="room-list-area" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- [3단계 화면: 고정 지출] -->
+            <div id="view-step3" style="display: none;">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center">
+                        <span role="button" onclick="showStep(2)" style="font-size: 1.2rem;">&larr;</span>
+                        <span>3단계: 고정 지출 항목</span>
+                        <span role="button" onclick="showStep(4)" style="font-size: 0.9rem;">다음 &rarr;</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <select id="fixed-expense-select" class="form-select"></select>
+                            <button class="btn btn-primary" type="button" onclick="addFixedItemFromSelect()">추가</button>
+                        </div>
+                        <div class="input-group mb-3">
+                            <input type="text" id="custom-fixed-group" class="form-control" placeholder="그룹 (예: 관리비)" style="max-width: 30%;">
+                            <input type="text" id="custom-fixed-item" class="form-control" placeholder="항목명 (예: 경비용역)">
+                            <button class="btn btn-outline-secondary" type="button" onclick="addCustomItem('fixed')">직접등록</button>
+                        </div>
+                        <div id="fixed-items-box" class="mt-4"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- [4단계 화면: 변동 지출] -->
+            <div id="view-step4" style="display: none;">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-info text-white fw-bold d-flex justify-content-between align-items-center">
+                        <span role="button" onclick="showStep(3)" style="font-size: 1.2rem;">&larr;</span>
+                        <span>4단계: 변동 지출 항목</span>
+                        <span role="button" onclick="finishSetup()" style="font-size: 0.9rem;">완료</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <select id="variable-expense-select" class="form-select"></select>
+                            <button class="btn btn-info text-white" type="button" onclick="addVariableItemFromSelect()">추가</button>
+                        </div>
+                        <div class="input-group mb-3">
+                            <input type="text" id="custom-variable-group" class="form-control" placeholder="그룹 (예: 공과금)" style="max-width: 30%;">
+                            <input type="text" id="custom-variable-item" class="form-control" placeholder="항목명 (예: 수도세)">
+                            <button class="btn btn-outline-info" type="button" onclick="addCustomItem('variable')">직접등록</button>
+                        </div>
+                        <div id="variable-items-box" class="mt-4"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- [메인 탭 콘텐츠 영역] -->
+            <div id="content-tabs-area" style="display: none;">
+                <!-- 1. 대시보드 -->
+                <div id="section-dashboard" class="content-section active">
+                    <!-- 검색창 / 드롭다운 -->
+                    <div class="position-relative mb-3">
+                        <input type="text" id="dash-building-search" class="form-control form-control-lg fw-bold text-primary shadow-sm" placeholder="🔍 건물을 검색하거나 선택하세요" onfocus="showBuildingDropdown()" onkeyup="filterBuildingDropdown()" autocomplete="off">
+                        <div id="dash-building-dropdown" class="list-group position-absolute w-100 shadow" style="display:none; z-index: 1000; max-height: 250px; overflow-y: auto;">
+                            <!-- JS 렌더링 -->
+                        </div>
+                    </div>
+                    
+                    <div id="dash-no-building-msg" class="alert alert-info shadow-sm">
+                        <h5 class="fw-bold mb-0">📊 건물을 먼저 선택해주세요</h5>
+                    </div>
+
+                    <!-- 대시보드 통계/정보 영역 -->
+                    <div id="dash-stats-container" style="display: none;">
+                        <!-- 1. 기본 정보 카드 -->
+                        <div class="card shadow-sm mb-3 border-0 clickable-card" onclick="editBuildingInfo()" title="클릭하여 건물 정보 수정">
+                            <div class="card-body">
+                                <h5 class="card-title fw-bold text-primary mb-1" id="dash-b-name">-</h5>
+                                <p class="card-text text-muted small mb-3"><span id="dash-b-addr">-</span></p>
+                                
+                                <div class="p-2 bg-light rounded text-center mb-3">
+                                    <small class="text-muted">관리실 연락처</small><br>
+                                    <strong id="dash-b-contact" class="fs-5">-</strong>
+                                </div>
+                                
+                                <div class="row g-0 text-center">
+                                    <div class="col-4 border-end">
+                                        <small class="text-muted d-block" style="font-size:0.75rem;">규모</small>
+                                        <strong id="dash-b-floors" style="font-size:0.9rem;">-</strong>
+                                    </div>
+                                    <div class="col-4 border-end">
+                                        <small class="text-muted d-block" style="font-size:0.75rem;">연면적</small>
+                                        <strong id="dash-b-area" style="font-size:0.9rem;">-</strong> <small class="text-muted" style="font-size:0.7rem">(전용합산)</small>
+                                    </div>
+                                    <div class="col-4">
+                                        <small class="text-muted d-block" style="font-size:0.75rem;">총 세대수</small>
+                                        <strong id="dash-b-units" style="font-size:0.9rem;">-</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 2. 관리 요약 -->
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <div class="card h-100 border-0 shadow-sm clickable-card" onclick="switchTab('building')">
+                                    <div class="card-body text-center py-3">
+                                        <div class="mb-1 text-secondary">🏠 등록 호실</div>
+                                        <h3 class="fw-bold mb-0" id="dash-room-count">-</h3>
+                                        <div id="dash-room-usage-breakdown" class="text-muted d-flex flex-wrap justify-content-center gap-1 mt-1" style="font-size: 0.7rem;">
+                                            <!-- JS rendered -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="card h-100 border-0 shadow-sm clickable-card" onclick="switchTab('accounting')">
+                                    <div class="card-body text-center py-3">
+                                        <div class="mb-1 text-secondary">🧾 회계</div>
+                                        <h3 class="fw-bold mb-0" id="dash-expense-count">-</h3>
+                                        <small class="text-muted" style="font-size: 0.7rem;">고정/변동 지출</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 3. 자금 현황 -->
+                        <div class="card border-0 shadow-sm bg-primary text-white mb-4">
+                            <div class="card-body d-flex justify-content-between align-items-center">
+                                <div>
+                                    <small class="opacity-75">현재 회계 잔액</small>
+                                    <h4 class="fw-bold mb-0" id="dash-balance">0원</h4>
+                                </div>
+                                <div class="fs-1 opacity-25">💰</div>
+                            </div>
+                        </div>
+
+                        <!-- 4. 이번 달 수납 현황 -->
+                        <div class="card border-0 shadow-sm mb-4">
+                            <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center py-2">
+                                <span>이번 달 수납 현황 (<span id="dash-current-month">-</span>)</span>
+                                <button class="btn btn-sm btn-outline-primary py-0" style="font-size:0.75rem;" onclick="switchTab('accounting'); switchExpenseMainTab('collection');">수납관리 ➔</button>
+                            </div>
+                            <div class="card-body py-3">
+                                <div class="d-flex justify-content-between text-center mb-2">
+                                    <div class="flex-fill border-end"><small class="text-muted">수납 완료</small><div class="fs-5 fw-bold text-success" id="dash-paid-count">0건</div></div>
+                                    <div class="flex-fill border-end"><small class="text-muted">미납</small><div class="fs-5 fw-bold text-danger" id="dash-unpaid-count">0건</div></div>
+                                    <div class="flex-fill"><small class="text-muted">수납률</small><div class="fs-5 fw-bold text-primary" id="dash-paid-rate">0%</div></div>
+                                </div>
+                                <div class="small bg-light p-2 rounded mt-3">
+                                    <span class="text-muted">미납 호실: </span>
+                                    <span id="dash-unpaid-rooms" class="text-danger fw-bold">없음</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-3 border-0 shadow-sm">
+                        <div class="card-header bg-secondary text-white fw-bold">최근 작업 히스토리 (현재 건물)</div>
+                        <ul class="list-group list-group-flush small" id="history-list">
+                            <li class="list-group-item text-center text-muted">기록이 없습니다.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 2~5. 기타 탭들 -->
+                <div id="section-building" class="content-section">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-white border-bottom-0 pt-3 pb-0">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="fw-bold mb-0">🏢 건물 관리</h5>
+                            </div>
+                            <ul class="nav nav-tabs card-header-tabs" style="font-size: 0.9rem;">
+                                <li class="nav-item"><a class="nav-link fw-bold text-muted px-2" id="tab-bldg-safety" href="#" onclick="switchBuildingSubTab('safety'); return false;">안전관리</a></li>
+                                <li class="nav-item"><a class="nav-link active fw-bold px-2" id="tab-bldg-room" href="#" onclick="switchBuildingSubTab('room'); return false;">호실관리</a></li>
+                                <li class="nav-item"><a class="nav-link fw-bold text-muted px-2" id="tab-bldg-vehicle" href="#" onclick="switchBuildingSubTab('vehicle'); return false;">차량관리</a></li>
+                            </ul>
+                        </div>
+                        <div class="card-body bg-light p-2">
+                            <!-- 1. 안전관리 탭 -->
+                            <div id="tab-content-bldg-safety" style="display: none;">
+                                <div class="alert alert-info border-0 shadow-sm text-center py-5 mt-2">
+                                    <h6 class="fw-bold">🛡️ 안전관리</h6>
+                                    <p class="small mb-0">안전관리 기능은 준비 중입니다.</p>
+                                </div>
+                            </div>
+                            <!-- 2. 호실관리 탭 -->
+                            <div id="tab-content-bldg-room">
+                                <div class="d-flex justify-content-end mb-2 mt-1">
+                                    <button class="btn btn-sm btn-outline-success" onclick="showStep(2)">+ 호실 추가/설정</button>
+                                </div>
+                                <div id="room-manage-list" class="list-group">
+                                    <!-- JS로 상세 리스트 생성됨 -->
+                                </div>
+                            </div>
+                            <!-- 3. 차량관리 탭 -->
+                            <div id="tab-content-bldg-vehicle" style="display: none;">
+                                <div class="alert alert-warning border-0 shadow-sm text-center py-5 mt-2">
+                                    <h6 class="fw-bold">🚗 차량관리</h6>
+                                    <p class="small mb-0">차량관리 기능은 준비 중입니다.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- [회계관리 탭] -->
+                <div id="section-accounting" class="content-section">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-white border-bottom-0 pt-3 pb-0">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="fw-bold mb-0">🧾 건물 회계 및 관리비</h5>
+                            </div>
+                            <ul class="nav nav-tabs card-header-tabs" style="font-size: 0.9rem;">
+                                <li class="nav-item"><a class="nav-link active fw-bold px-2" id="tab-main-transaction" href="#" onclick="switchExpenseMainTab('transaction'); return false;">장부</a></li>
+                                <li class="nav-item"><a class="nav-link fw-bold text-muted px-2" id="tab-main-settlement" href="#" onclick="switchExpenseMainTab('settlement'); return false;">결산</a></li>
+                                <li class="nav-item"><a class="nav-link fw-bold text-muted px-2" id="tab-main-collection" href="#" onclick="switchExpenseMainTab('collection'); return false;">수납</a></li>
+                                <li class="nav-item"><a class="nav-link fw-bold text-muted px-2" id="tab-main-levy" href="#" onclick="switchExpenseMainTab('levy'); return false;">부과</a></li>
+                            </ul>
+                        </div>
+                        <div class="card-body bg-light">
+                            <!-- 1. 거래내역서(장부) 탭 -->
+                            <div id="tab-content-transaction">
+                                <div class="card shadow-sm border-0 mb-3">
+                                    <div class="card-body">
+                                        <h6 class="fw-bold text-primary mb-3">수입/지출 등록</h6>
+                                        <form id="accounting-form">
+                                            <div class="row g-2 mb-2">
+                                                <div class="col-6"><input type="date" id="a-date" class="form-control form-control-sm" required></div>
+                                                <div class="col-6">
+                                                    <select id="a-type" class="form-select form-select-sm">
+                                                        <option value="income">수입</option><option value="expense">지출</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="mb-2"><input type="text" id="a-desc" class="form-control form-control-sm" placeholder="내역 (예: 301호 관리비)" required></div>
+                                            <div class="mb-2"><input type="number" id="a-amount" class="form-control form-control-sm" placeholder="금액 (원)" required></div>
+                                            <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold">내역 저장</button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="card bg-white border-0 shadow-sm mb-3">
+                                    <div class="card-body py-2 d-flex justify-content-between align-items-center">
+                                        <strong>현재 잔액</strong><span id="total-balance" class="fs-5 fw-bold text-primary">0원</span>
+                                    </div>
+                                </div>
+                                <h6 class="border-bottom pb-2 text-muted fw-bold small">최근 거래 내역</h6>
+                                <ul id="accounting-list" class="list-group list-group-flush bg-white rounded shadow-sm small"></ul>
+                            </div>
+                            <!-- 2. 결산 탭 -->
+                            <div id="tab-content-settlement" style="display: none;">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0">📊 월별 결산 현황</h6>
+                                    <select id="settlement-year" class="form-select form-select-sm" style="width: 100px;" onchange="loadSettlement()"></select>
+                                </div>
+                                <div class="card mb-3 shadow-sm border-0"><div class="card-body p-2"><canvas id="settlementChart" style="max-height: 250px;"></canvas></div></div>
+                                <div class="table-responsive bg-white border rounded shadow-sm">
+                                    <table class="table table-hover mb-0 text-center small align-middle">
+                                        <thead class="table-light"><tr><th>월</th><th class="text-success">수입</th><th class="text-danger">지출</th><th class="text-primary">순이익</th></tr></thead>
+                                        <tbody id="settlement-table-body"></tbody>
+                                        <tfoot class="table-light fw-bold" id="settlement-table-foot"></tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                            <!-- 3. 수납 탭 -->
+                            <div id="tab-content-collection" style="display: none;">
+                                <div class="card p-3 mb-4 border-0 shadow-sm">
+                                    <h6 class="fw-bold mb-3 text-primary">💰 미납 내역 수납 처리</h6>
+                                    <div class="row g-2 align-items-end mb-3">
+                                        <div class="col-4"><label class="small fw-bold text-muted">수납 일자</label><input type="date" id="coll-date" class="form-control form-control-sm"></div>
+                                        <div class="col-4"><label class="small fw-bold text-muted">호실 선택</label><select id="coll-room" class="form-select form-select-sm"></select></div>
+                                        <div class="col-4"><button class="btn btn-primary btn-sm w-100" onclick="searchUnpaidLevies()">조회</button></div>
+                                    </div>
+                                    <div id="coll-result-area" style="display:none;" class="bg-white border rounded p-2">
+                                        <table class="table table-sm table-bordered text-center align-middle mb-2" style="font-size: 0.8rem;">
+                                            <thead class="table-light"><tr><th>선택</th><th>월</th><th>납기일</th><th>원금</th><th class="text-danger">연체료</th><th class="fw-bold">총액</th></tr></thead>
+                                            <tbody id="coll-result-tbody"></tbody>
+                                        </table>
+                                        <button class="btn btn-success w-100 fw-bold btn-sm" onclick="processSelectedPayment()">선택 수납 및 장부 반영</button>
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mb-2 border-top pt-3">
+                                    <h6 class="fw-bold mb-0">📋 월별 수납 현황</h6>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <input type="month" id="collection-month" class="form-control form-control-sm" style="width: 120px;" onchange="loadCollectionStatus()">
+                                        <span class="badge bg-light text-primary border" id="collection-rate">0%</span>
+                                    </div>
+                                </div>
+                                <div class="card border-0 shadow-sm"><div class="list-group list-group-flush small" id="collection-list"><div class="text-center py-4 text-muted">내역이 없습니다.</div></div></div>
+                            </div>
+                            <!-- 4. 부과 탭 -->
+                            <div id="tab-content-levy" style="display: none;">
+                                <ul class="nav nav-pills mb-3">
+                                    <li class="nav-item"><button class="nav-link active py-1 px-3 me-2" id="btn-levy-status" onclick="switchLevySubTab('status')">부과 현황</button></li>
+                                    <li class="nav-item"><button class="nav-link py-1 px-3" id="btn-levy-meter" onclick="switchLevySubTab('meter')">세대별 검침</button></li>
+                                </ul>
+                                <div id="view-levy-status">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <div class="d-flex gap-2">
+                                            <input type="month" id="levy-month" class="form-control form-control-sm" style="width: 110px;">
+                                            <input type="date" id="levy-due-date" class="form-control form-control-sm" style="width: 110px;" title="납기일">
+                                        </div>
+                                    </div>
+                                    <div class="d-flex gap-2 mb-3">
+                                        <button class="btn btn-primary btn-sm flex-fill fw-bold" onclick="loadLevyList()">조회</button>
+                                        <button class="btn btn-outline-primary btn-sm flex-fill" onclick="createMonthlyLevy()">일괄 부과 생성</button>
+                                        <button class="btn btn-secondary btn-sm px-2" onclick="showStep(3)" title="지출 항목 설정">⚙️</button>
+                                    </div>
+                                    <div class="card border-0 shadow-sm mb-3">
+                                        <div class="card-header bg-light py-2 d-flex justify-content-between small fw-bold"><span>호실</span><span>청구액/상태</span><span>관리</span></div>
+                                        <div class="list-group list-group-flush small" id="levy-list"><div class="text-center py-5 text-muted">조회된 부과 내역이 없습니다.</div></div>
+                                    </div>
+                                </div>
+                                <div id="view-levy-meter" style="display: none;">
+                                    <div class="row g-2 mb-3 align-items-center">
+                                        <div class="col-5"><input type="month" id="meter-month" class="form-control form-control-sm" onchange="loadMeterTable()"></div>
+                                        <div class="col-7">
+                                            <select id="meter-type" class="form-select form-select-sm" onchange="loadMeterTable()">
+                                                <option value="electric">⚡ 전기</option><option value="water">💧 수도</option><option value="gas">🔥 가스</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex gap-2 mb-3">
+                                        <button class="btn btn-sm btn-outline-primary flex-fill" onclick="importPreviousReadings()">전월지침 불러오기</button>
+                                        <button class="btn btn-sm btn-success flex-fill" onclick="saveMeterReadings()">저장</button>
+                                    </div>
+                                    <div class="table-responsive bg-white border rounded shadow-sm" style="max-height: 400px; overflow-y: auto;">
+                                        <table class="table table-sm table-hover text-center align-middle mb-0" style="font-size: 0.8rem;">
+                                            <thead class="table-light sticky-top"><tr><th style="width:20%">호실</th><th>전월</th><th>당월</th><th>사용량</th></tr></thead>
+                                            <tbody id="meter-table-body"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="section-schedule" class="content-section"><div class="alert alert-warning shadow-sm"><h5 class="fw-bold">📅 스케쥴</h5><p class="mb-0">일정 및 작업 예약 화면입니다.</p></div></div>
+                <div id="section-document" class="content-section"><div class="alert alert-dark shadow-sm"><h5 class="fw-bold">📁 문서</h5><p class="mb-0">부과내역서, 계약서 등 각종 문서 관리 화면입니다.</p></div></div>
+            </div>
+        </div>
+
+    <!-- [호실 상세 정보 모달] -->
+    <div class="modal fade" id="roomDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title fw-bold" id="roomDetailLabel">호실 상세 정보</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="room-detail-form">
+                        <input type="hidden" id="detail-room-no">
+                        
+                        <!-- 1. 임대인 정보 -->
+                        <h6 class="border-bottom pb-2 mb-3 fw-bold text-success">👤 임대인(주인) 정보</h6>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6 d-flex align-items-center">
+                                <label class="col-form-label col-form-label-sm fw-bold me-2 text-nowrap">용도구분</label>
+                                <select id="room-usage" class="form-select form-select-sm">
+                                    <option value="공동주택">공동주택</option>
+                                    <option value="근생">근생</option>
+                                    <option value="오피스">오피스</option>
+                                    <option value="오피스텔">오피스텔</option>
+                                </select>
+                            </div>
+                            <div class="col-6 d-flex align-items-center">
+                                <label class="col-form-label col-form-label-sm fw-bold me-2 text-nowrap">전용면적</label>
+                                <input type="number" id="room-area" class="form-control form-control-sm" step="0.01" placeholder="84.5㎡">
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-4"><input type="text" id="landlord-name" class="form-control form-control-sm" placeholder="이름"></div>
+                            <div class="col-4"><input type="tel" id="landlord-contact" class="form-control form-control-sm" placeholder="연락처"></div>
+                            <div class="col-4"><input type="date" id="landlord-date" class="form-control form-control-sm" title="계약일"></div>
+                        </div>
+
+                        <!-- 2. 임차인 정보 -->
+                        <h6 class="border-bottom pb-2 mb-3 fw-bold text-primary">🏠 임차인(세입자) 정보</h6>
+                        <div class="row g-2 mb-2">
+                            <div class="col-4">
+                                <select id="tenant-contract-type" class="form-select form-select-sm" onchange="handleContractTypeChange()">
+                                    <option value="">계약선택</option>
+                                    <option value="직주">직주</option>
+                                    <option value="월세">월세</option>
+                                    <option value="전세">전세</option>
+                                    <option value="공실">공실</option>
+                                    <option value="미분양">미분양</option>
+                                </select>
+                            </div>
+                            <div class="col-4"><input type="text" id="tenant-name" class="form-control form-control-sm" placeholder="이름"></div>
+                            <div class="col-4"><input type="tel" id="tenant-contact" class="form-control form-control-sm" placeholder="연락처"></div>
+                        </div>
+                        <div class="row g-2 mb-4">
+                            <div class="col-4"><input type="date" id="tenant-date" class="form-control form-control-sm" title="계약일"></div>
+                            <div class="col-8">
+                                <input type="text" id="tenant-period" class="form-control form-control-sm" placeholder="계약 기간 (예: 24개월)">
+                            </div>
+                        </div>
+
+                        <!-- 3. 차량 정보 -->
+                        <h6 class="border-bottom pb-2 mb-3 fw-bold text-secondary d-flex justify-content-between">
+                            <span>🚗 차량 정보</span>
+                        </h6>
+                        <div class="row">
+                            <div class="col-4">
+                                <div class="d-grid gap-2" id="vehicle-select-btns">
+                                    <!-- 차량 선택 버튼 -->
+                                </div>
+                            </div>
+                            <div class="col-8">
+                                <div id="vehicle-detail-form" class="bg-light p-2 rounded border">
+                                    <!-- 차량 상세 입력 폼 -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. 세대 히스토리 -->
+                        <h6 class="border-bottom pb-2 mb-3 mt-4 fw-bold text-dark d-flex justify-content-between align-items-center">
+                            <span>📜 세대 히스토리</span>
+                        </h6>
+                        <div class="mb-2 d-flex gap-2">
+                            <input type="date" id="rh-date" class="form-control form-control-sm" style="width: 120px;">
+                            <input type="text" id="rh-content" class="form-control form-control-sm" placeholder="히스토리 내용 (예: 도배, 누수 수리 등)">
+                            <button type="button" class="btn btn-sm btn-primary text-nowrap" onclick="addRoomHistory()">추가</button>
+                        </div>
+                        <ul class="list-group list-group-flush small border rounded mb-2" id="room-history-list" style="max-height: 150px; overflow-y: auto;">
+                            <!-- JS rendered -->
+                        </ul>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-primary" onclick="saveRoomDetail()">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+        <!-- 하단 네비게이션 바 -->
+        <div class="bottom-nav">
+            <button class="nav-btn active" onclick="switchTab('dashboard')">
+                <span class="nav-icon">📊</span>
+                <span>대시보드</span>
+            </button>
+            <button class="nav-btn" onclick="switchTab('building')">
+                <span class="nav-icon">🏢</span>
+                <span>건물관리</span>
+            </button>
+            <button class="nav-btn" onclick="switchTab('accounting')">
+                <span class="nav-icon">🧾</span>
+                <span>회계관리</span>
+            </button>
+            <button class="nav-btn" onclick="switchTab('schedule')">
+                <span class="nav-icon">📅</span>
+                <span>스케쥴</span>
+            </button>
+            <button class="nav-btn" onclick="switchTab('document')">
+                <span class="nav-icon">📁</span>
+                <span>문서</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS (사이드바, 모달 등 동작용) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // --- 전역 상태 ---
+        const GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxo-Fs6ueOh24UZzXXK93RrOKozEGJoA5k3xpLrRUsOLVcJbTkUFGzwsoBrcDsnAxI/exec";
+        let currentUser = null;
+        let currentBuildingId = null; // 현재 선택된 건물 ID
+
+        // --- IndexedDB 설정 (로컬 데이터베이스) ---
+        const DB_NAME = 'MCERP_DB';
+        const DB_VERSION = 2; // 새로운 DB 테이블 생성을 강제하기 위한 버전업
+        let db;
+
+        const initDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = (event) => {
+                    db = event.target.result;
+                    // 동기화에 사용될 주요 스토어 생성
+                    if (!db.objectStoreNames.contains('Buildings')) db.createObjectStore('Buildings', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('Rooms')) db.createObjectStore('Rooms', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('ExpenseItems')) db.createObjectStore('ExpenseItems', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('Accounting')) {
+                        const store = db.createObjectStore('Accounting', { keyPath: 'id', autoIncrement: true });
+                        store.createIndex('date', 'date', { unique: false });
+                    }
+                    if (!db.objectStoreNames.contains('Levy')) {
+                        const store = db.createObjectStore('Levy', { keyPath: 'id' });
+                        store.createIndex('month', 'month', { unique: false });
+                    }
+                    if (!db.objectStoreNames.contains('MeterReadings')) {
+                        const store = db.createObjectStore('MeterReadings', { keyPath: 'id' });
+                        store.createIndex('month_type', ['month', 'type'], { unique: false });
+                    }
+                    if (!db.objectStoreNames.contains('History')) db.createObjectStore('History', { keyPath: 'id' });
+                };
+                request.onsuccess = (event) => { db = event.target.result; resolve(db); };
+                request.onerror = (event) => reject(event.target.errorCode);
+            });
+        };
+
+        // DB 헬퍼 함수
+        const getAllFromDB = (storeName, includeDeleted = false) => new Promise((resolve, reject) => {
+            const req = db.transaction([storeName], 'readonly').objectStore(storeName).getAll();
+            req.onsuccess = () => {
+                let result = req.result;
+                // 일반 화면에서는 삭제 대기 중(Soft Delete)인 데이터를 숨김
+                if (!includeDeleted) {
+                    result = result.filter(item => item.sync_status !== 'pending_delete');
+                }
+                // 동기화 시 필터링 로직: 건물 고유 데이터 추출
+                if (storeName !== 'Buildings' && storeName !== 'History' && currentBuildingId) {
+                    result = result.filter(item => item.buildingId === currentBuildingId);
+                }
+                resolve(result);
+            };
+            req.onerror = () => reject(req.error);
+        });
+        const getOneFromDB = (storeName, key) => new Promise((resolve, reject) => {
+            let queryKey = key;
+            if ((storeName === 'Rooms' || storeName === 'ExpenseItems') && currentBuildingId) {
+                if (typeof key === 'string' && !key.startsWith(`${currentBuildingId}_`)) queryKey = `${currentBuildingId}_${key}`;
+            }
+            const req = db.transaction([storeName], 'readonly').objectStore(storeName).get(queryKey);
+            req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+        });
+        const saveToDB = (storeName, data) => new Promise((resolve, reject) => {
+            // 저장 시 복합키 및 건물ID 매핑
+            if (storeName !== 'Buildings' && storeName !== 'History' && currentBuildingId) {
+                data.buildingId = currentBuildingId;
+                if (storeName === 'Rooms' && data.room_no) data.id = `${currentBuildingId}_${data.room_no}`;
+                if (storeName === 'ExpenseItems' && data.item_name) data.id = `${currentBuildingId}_${data.item_name}`;
+            }
+            
+            // 기존 데이터 수정 시 상태를 업데이트 대기로 변경
+            if (!data.sync_status) data.sync_status = 'pending_add';
+            else if (data.sync_status === 'synced') data.sync_status = 'pending_update';
+            
+            data.updated_at = new Date().toISOString();
+            
+            const req = db.transaction([storeName], 'readwrite').objectStore(storeName).put(data);
+            req.onsuccess = () => resolve(); req.onerror = () => reject(req.error);
+        });
+        const deleteFromDB = (storeName, key, hardDelete = false) => new Promise(async (resolve, reject) => {
+            let queryKey = key;
+            if ((storeName === 'Rooms' || storeName === 'ExpenseItems') && currentBuildingId) {
+                if (typeof key === 'string' && !key.startsWith(`${currentBuildingId}_`)) queryKey = `${currentBuildingId}_${key}`;
+            }
+            
+            // 논리적 삭제 (Soft Delete): 동기화를 위해 서버에 삭제 사실을 알리기 위한 상태 변경
+            if (!hardDelete) {
+                try {
+                    const record = await getOneFromDB(storeName, queryKey);
+                    if (record) {
+                        record.sync_status = 'pending_delete';
+                        record.updated_at = new Date().toISOString();
+                        const req = db.transaction([storeName], 'readwrite').objectStore(storeName).put(record);
+                        req.onsuccess = () => resolve(); req.onerror = () => reject(req.error);
+                        return;
+                    }
+                } catch (e) { console.warn("Soft delete failed", e); }
+            }
+            
+            const req = db.transaction([storeName], 'readwrite').objectStore(storeName).delete(queryKey);
+            req.onsuccess = () => resolve(); req.onerror = () => reject(req.error);
+        });
+        const clearStore = (storeName) => new Promise((resolve, reject) => {
+            const req = db.transaction([storeName], 'readwrite').objectStore(storeName).clear();
+            req.onsuccess = () => resolve(); req.onerror = () => reject(req.error);
+        });
+
+        // --- 앱 초기화 ---
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initDB();
+            checkLoginStatus();
+        });
+
+        // --- 사이드바 이벤트 리스너 (사이드바 열릴 때 히스토리 로드) ---
+        const sidebarMenu = document.getElementById('sidebarMenu');
+        if (sidebarMenu) {
+            sidebarMenu.addEventListener('show.bs.offcanvas', async () => {
+                const logs = await getAllFromDB('History');
+                // 최신순(내림차순) 정렬
+                logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                
+                const list = document.getElementById('sidebar-history-list');
+                list.innerHTML = '';
+                if (logs.length === 0) {
+                    list.innerHTML = '<li class="list-group-item text-center text-muted border-0">기록이 없습니다.</li>';
+                    return;
+                }
+                
+                logs.forEach(log => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item px-1 py-2 border-0 border-bottom';
+                    li.innerHTML = `
+                        <div class="d-flex justify-content-between text-muted" style="font-size: 0.7rem;">
+                            <span>${new Date(log.timestamp).toLocaleString()}</span>
+                            <span class="badge bg-light text-dark border">${log.target}</span>
+                        </div>
+                        <div class="mt-1">${log.action} <span class="text-muted">(${log.detail})</span></div>
+                    `;
+                    list.appendChild(li);
+                });
+            });
+        }
+
+        // 1. 로그인 상태 확인
+        function checkLoginStatus() {
+            const savedUser = localStorage.getItem('mcerp_user');
+            if (savedUser) {
+                currentUser = JSON.parse(savedUser);
+                document.getElementById('current-user-display').innerText = `👤 ${currentUser.name || currentUser.id}`;
+                document.getElementById('sidebar-user-name').innerText = `${currentUser.name || currentUser.id} (${currentUser.role || 'User'})`;
+                
+                // 로그인 후 진입점 결정
+                getAllFromDB('Buildings').then(buildings => {
+                    document.getElementById('view-login').style.display = 'none';
+                    document.getElementById('app-container').style.display = 'block';
+                    if(buildings.length > 0) showBuildingList();
+                    else showBuildingCreate();
+                });
+                // 앱 시작 시 구글 시트에서 최신 데이터 Pull 
+                // syncWithGoogleSheets();
+            } else {
+                showLogin();
+            }
+        };
+
+        // 2. 로그인 처리 로직
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('login-id').value;
+            const pw = document.getElementById('login-pw').value;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+
+            if (id && pw) {
+                const originalBtnText = submitBtn.innerText;
+                submitBtn.innerText = '로그인 중...';
+                submitBtn.disabled = true;
+
+                try {
+                    const response = await fetch(GOOGLE_APP_SCRIPT_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'login', id: id, pw: pw })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        const userData = { 
+                            id: result.user.id, 
+                            name: result.user.name, 
+                            role: result.user.role, 
+                            loginTime: new Date().getTime() 
+                        };
+                        localStorage.setItem('mcerp_user', JSON.stringify(userData));
+                        currentUser = userData;
+                        
+                        await logAdvancedHistory('시스템', '로그인 성공', '구글 시트 연동 접속');
+                        
+                        document.getElementById('current-user-display').innerText = `👤 ${currentUser.name || currentUser.id}`;
+                        document.getElementById('sidebar-user-name').innerText = `${currentUser.name || currentUser.id} (${currentUser.role || 'User'})`;
+                        
+                        getAllFromDB('Buildings').then(buildings => {
+                            document.getElementById('view-login').style.display = 'none';
+                            document.getElementById('app-container').style.display = 'block';
+                            if(buildings.length > 0) showBuildingList();
+                            else showBuildingCreate();
+                        });
+                    } else {
+                        alert(result.message || '아이디 또는 비밀번호가 일치하지 않습니다.');
+                    }
+                } catch (error) {
+                    alert('서버와 통신 중 오류가 발생했습니다. (URL 및 권한 설정을 확인해주세요)');
+                    console.error('Login error:', error);
+                } finally {
+                    submitBtn.innerText = originalBtnText;
+                    submitBtn.disabled = false;
+                }
+            }
+        });
+
+        // 3. 화면 전환 제어
+        function showLogin() {
+            document.getElementById('view-login').style.display = 'flex';
+            document.getElementById('app-container').style.display = 'none';
+        }
+
+        function showMainApp() {
+            // 사용하지 않음 (초기화 로직에 통합됨)
+        }
+
+        function hideAllViews() {
+            document.getElementById('view-login').style.display = 'none';
+            document.getElementById('view-building-list').style.display = 'none';
+            if(document.getElementById('view-step1')) document.getElementById('view-step1').style.display = 'none';
+            if(document.getElementById('view-step2')) document.getElementById('view-step2').style.display = 'none';
+            if(document.getElementById('view-step3')) document.getElementById('view-step3').style.display = 'none';
+            if(document.getElementById('view-step4')) document.getElementById('view-step4').style.display = 'none';
+            document.getElementById('content-tabs-area').style.display = 'none';
+        }
+
+        // 4. 로그아웃
+        function logout() {
+            if(confirm('로그아웃 하시겠습니까? (동기화되지 않은 로컬 데이터는 보존됩니다)')) {
+                localStorage.removeItem('mcerp_user');
+                currentUser = null;
+                document.getElementById('login-form').reset();
+                showLogin();
+            }
+        }
+
+        // 5. 탭 전환 로직
+        function switchTab(tabName) {
+            if(!currentBuildingId && tabName !== 'dashboard') {
+                alert("건물을 먼저 선택해주세요.");
+                return showBuildingList();
+            }
+
+            hideAllViews();
+            document.getElementById('content-tabs-area').style.display = 'block';
+
+            document.querySelectorAll('.content-section').forEach(el => el.classList.remove('active'));
+            document.getElementById(`section-${tabName}`).classList.add('active');
+
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+            const tabNames = ['dashboard', 'building', 'accounting', 'schedule', 'document'];
+            const tabIndex = tabNames.indexOf(tabName);
+            if(tabIndex > -1) document.querySelectorAll('.nav-btn')[tabIndex].classList.add('active');
+            
+            if(tabName === 'dashboard' && currentBuildingId) {
+                renderDashboard();
+            } else if(tabName === 'building' && currentBuildingId) {
+                switchBuildingSubTab('room');
+            } else if(tabName === 'accounting' && currentBuildingId) {
+                switchExpenseMainTab('transaction');
+            }
+            
+            // 사이드바 자동 닫기
+            const sidebar = bootstrap.Offcanvas.getInstance(document.getElementById('sidebarMenu'));
+            if(sidebar) sidebar.hide();
+        }
+
+        // --- 대시보드 데이터 렌더링 ---
+        async function renderDashboard() {
+            if (!currentBuildingId) {
+                document.getElementById('dash-stats-container').style.display = 'none';
+                document.getElementById('dash-no-building-msg').style.display = 'block';
+                return;
+            }
+            
+            document.getElementById('dash-no-building-msg').style.display = 'none';
+            document.getElementById('dash-stats-container').style.display = 'block';
+            
+            const info = await getOneFromDB('Buildings', currentBuildingId);
+            const rooms = await getAllFromDB('Rooms');
+            const expenses = await getAllFromDB('ExpenseItems');
+            
+            let transactions = [];
+            try { transactions = await getAllFromDB('Accounting'); } catch(e) {}
+            
+            let balance = 0;
+            let totalExclusiveArea = 0;
+            let usageCounts = { "공동주택": 0, "근생": 0, "오피스": 0, "오피스텔": 0, "미지정": 0 };
+
+            transactions.forEach(t => {
+                if (t.type === 'income') balance += parseInt(t.amount || 0);
+                else balance -= parseInt(t.amount || 0);
+            });
+            
+            rooms.forEach(r => {
+                totalExclusiveArea += (parseFloat(r.area) || 0);
+                const u = r.usage_type || "미지정";
+                if(usageCounts[u] !== undefined) usageCounts[u]++;
+                else usageCounts["미지정"]++;
+            });
+
+            if(info) {
+                const displayName = info.alias ? `${info.name} <span class="badge bg-secondary ms-1" style="font-size:0.7rem">${info.alias}</span>` : info.name;
+                document.getElementById('dash-b-name').innerHTML = displayName || '미설정';
+                document.getElementById('dash-b-addr').innerText = info.address || '-';
+                document.getElementById('dash-b-contact').innerText = info.contact || '미설정';
+                
+                // [수정] 목표 세대수와 실제 등록 호실 중 더 큰 값을 총 세대수로 반영
+                const displayUnits = Math.max(info.units || 0, rooms.length);
+                document.getElementById('dash-b-units').innerText = displayUnits + '세대';
+                
+                const up = info.floors_up || 0;
+                const down = info.floors_down || 0;
+                document.getElementById('dash-b-floors').innerText = `지상 ${up}층${down > 0 ? ` / 지하 ${down}층` : ''}`;
+                document.getElementById('dash-b-area').innerText = totalExclusiveArea.toLocaleString() + '㎡';
+            }
+            
+            document.getElementById('dash-room-count').innerText = rooms.length + '개';
+            
+            let usageHtml = '';
+            for(const [u, count] of Object.entries(usageCounts)) {
+                if(count > 0) usageHtml += `<span class="badge bg-light text-dark border">${u} <span class="text-primary fw-bold">${count}</span></span>`;
+            }
+            document.getElementById('dash-room-usage-breakdown').innerHTML = usageHtml;
+            
+            document.getElementById('dash-expense-count').innerText = expenses.length + '개';
+            document.getElementById('dash-balance').innerText = balance.toLocaleString() + '원';
+
+            // --- 이번 달 수납 현황 렌더링 ---
+            const now = new Date();
+            const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            document.getElementById('dash-current-month').innerText = currentMonthStr;
+
+            let levies = [];
+            try { levies = await getAllFromDB('Levy'); } catch(e) {}
+            
+            const currentMonthLevies = levies.filter(l => l.month === currentMonthStr);
+            let paidCount = 0;
+            let unpaidRooms = [];
+            
+            currentMonthLevies.forEach(l => {
+                if(l.status === 'paid') paidCount++;
+                else unpaidRooms.push(l.room_no);
+            });
+
+            const totalLevy = currentMonthLevies.length;
+            document.getElementById('dash-paid-count').innerText = `${paidCount}건`;
+            document.getElementById('dash-unpaid-count').innerText = `${totalLevy - paidCount}건`;
+            document.getElementById('dash-paid-rate').innerText = `${totalLevy > 0 ? Math.round((paidCount / totalLevy) * 100) : 0}%`;
+            
+            const unpaidEl = document.getElementById('dash-unpaid-rooms');
+            if(unpaidRooms.length > 0) {
+                unpaidEl.innerText = unpaidRooms.slice(0, 5).join(', ') + (unpaidRooms.length > 5 ? ' 등...' : '');
+                unpaidEl.className = 'text-danger fw-bold';
+            } else {
+                unpaidEl.innerText = totalLevy > 0 ? '전원 수납 완료 🎉' : '부과 내역 없음';
+                unpaidEl.className = totalLevy > 0 ? 'text-success fw-bold' : 'text-muted';
+            }
+
+            // 최근 히스토리(5개) 업데이트
+            const logs = await getAllFromDB('History');
+            logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            const list = document.getElementById('history-list');
+            list.innerHTML = logs.length === 0 ? '<li class="list-group-item text-center text-muted border-0">기록이 없습니다.</li>' : '';
+            logs.slice(0, 5).forEach(log => {
+                list.innerHTML += `<li class="list-group-item px-2 py-2 small border-0 border-bottom"><span class="text-muted me-2" style="font-size:0.7rem">${new Date(log.timestamp).toLocaleDateString()}</span> [${log.action}] ${log.target}</li>`;
+            });
+        }
+
+        // --- 건물 선택(로비) 및 생성 기능 ---
+        async function showBuildingList() {
+            hideAllViews();
+            document.getElementById('view-building-list').style.display = 'block';
+            
+            const sidebar = bootstrap.Offcanvas.getInstance(document.getElementById('sidebarMenu'));
+            if(sidebar) sidebar.hide();
+
+            currentBuildingId = null; // 선택 해제
+            const headerBName = document.getElementById('header-building-name');
+            if(headerBName) headerBName.style.display = 'none'; // 헤더 건물명 숨김
+
+            const buildings = await getAllFromDB('Buildings');
+            const container = document.getElementById('lobby-building-groups');
+            container.innerHTML = '';
+
+            if (buildings.length === 0) {
+                container.innerHTML = '<div class="alert alert-light text-center border mt-3">등록된 건물이 없습니다.<br>새 건물을 등록해주세요.</div>';
+                return;
+            }
+
+            // 지역별 그룹화
+            const groups = {};
+            buildings.forEach(b => {
+                const region = b.region || '기타 지역';
+                if (!groups[region]) groups[region] = [];
+                groups[region].push(b);
+            });
+
+            for (const [region, list] of Object.entries(groups)) {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'mb-4';
+                groupDiv.innerHTML = `<h6 class="fw-bold text-secondary border-bottom pb-2">📍 ${region} <span class="badge bg-light text-dark border ms-1">${list.length}</span></h6>`;
+                
+                const listGroup = document.createElement('div');
+                listGroup.className = 'list-group shadow-sm';
+                
+                list.forEach(b => {
+                    const aliasBadge = b.alias ? `<span class="badge bg-info text-dark ms-2">${b.alias}</span>` : '';
+                    const item = document.createElement('button');
+                    item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center p-3 lobby-b-item border-0 border-bottom';
+                    item.dataset.searchText = `${b.name} ${b.region} ${b.alias}`.toLowerCase();
+                    item.onclick = () => selectBuilding(b.id);
+                    item.innerHTML = `
+                        <div>
+                            <div class="fs-5 fw-bold text-primary">${b.name} ${aliasBadge}</div>
+                            <div class="small text-muted mt-1">${b.address}</div>
+                        </div>
+                        <span class="badge bg-primary rounded-pill px-3 py-2">관리 &rarr;</span>
+                    `;
+                    listGroup.appendChild(item);
+                });
+                groupDiv.appendChild(listGroup);
+                container.appendChild(groupDiv);
+            }
+        }
+
+        function filterLobbyBuildings() {
+            const keyword = document.getElementById('search-building-lobby').value.toLowerCase();
+            document.querySelectorAll('.lobby-b-item').forEach(item => {
+                item.style.display = item.dataset.searchText.includes(keyword) ? 'flex' : 'none';
+            });
+        }
+
+        function showBuildingCreate() {
+            showStep(1, true);
+        }
+
+        // --- [마법사 1~4단계 비즈니스 로직] ---
+        let isEditMode = false; // 수정 모드 여부
+
+        const FIXED_EXPENSE_GROUPS = {
+            "종합관리": ["위탁관리", "회계관리", "프로그램사용료", "인쇄비"],
+            "안전관리": ["승강기 안전관리", "소방 안전관리", "전기 안전관리", "주차기 안전관리"],
+            "위생관리": ["계단청소", "정화조 청소", "저수조 청소", "위생 방역", "수질검사", "재활용품 수거"],
+            "보험": ["화재보험", "승강기안전보험", "주차기안전보험", "영업배상책임보험", "어린이 놀이시설보험", "시설물배상보험"],
+            "교육": ["승강기안전관리자교육", "소방안전관리자교육", "주차기안전관리자교육", "수질관리 교육", "저수조 관리 교육"],
+            "검사": ["승강기 안전검사", "발전기 안전 검사", "전기 안전검사", "건축물 안전 검사"],
+            "일반관리": ["업무추진비", "안전관리자 선임", "인건비"],
+            "수선비": ["수선유지비", "장기수선충당금"],
+            "보안": ["보안업체"],
+            "기타": ["도로세"]
+        };
+
+        const VARIABLE_EXPENSE_GROUPS = {
+            "공과금": ["공용 전기료", "공용 수도료", "세대 전기료", "세대 수도료", "세대 가스비"],
+            "통신비": ["전화세", "비상통화장치", "인터넷"],
+            "수선유지비": ["건물/시설 수리", "전기 수리", "배관/정화조 수리", "승강기 수리"],
+            "소모품비": ["미화 용품", "전구/자재 구입", "쓰레기 봉투"],
+            "기타": []
+        };
+
+        function showStep(step, isNewBuilding = false) {
+            hideAllViews();
+            isEditMode = false;
+            const sidebar = bootstrap.Offcanvas.getInstance(document.getElementById('sidebarMenu'));
+            if(sidebar) sidebar.hide();
+
+            if (step === 1) {
+                document.getElementById('header-step1').innerText = "1단계: 건물 기본 정보 세팅";
+                document.getElementById('btn-save-step1').innerText = "저장 후 2단계로 이동";
+                if(isNewBuilding) {
+                    document.getElementById('building-form').reset();
+                    currentBuildingId = 'bld_' + Date.now(); 
+                    const headerBName = document.getElementById('header-building-name');
+                    if(headerBName) { headerBName.innerText = '새 건물 등록 중'; headerBName.style.display = 'inline-block'; }
+                }
+                document.getElementById('view-step1').style.display = 'block';
+            } else if (step === 2) {
+                document.getElementById('view-step2').style.display = 'block';
+                // 새 건물 등록 마법사 UI 복원
+                const header = document.querySelector('#view-step2 .card-header');
+                header.innerHTML = `
+                    <span role="button" onclick="showStep(1)" style="font-size: 1.2rem;">&larr;</span>
+                    <span>2단계: 호실 등록</span>
+                    <span role="button" onclick="showStep(3)" style="font-size: 0.9rem;">다음 &rarr;</span>
+                `;
+                loadRoomsStep(); 
+            } else if (step === 3) {
+                document.getElementById('view-step3').style.display = 'block';
+                loadFixedExpensesStep();
+            } else if (step === 4) {
+                document.getElementById('view-step4').style.display = 'block';
+                loadVariableExpensesStep();
+            }
+        }
+
+        // 건물 정보 수정 모드 (데이터 불러오기)
+        async function editBuildingInfo() {
+            isEditMode = true;
+            hideAllViews();
+            document.getElementById('view-step1').style.display = 'block';
+            document.getElementById('header-step1').innerText = "✏️ 건물 정보 수정";
+            document.getElementById('btn-save-step1').innerText = "수정 완료 (대시보드로 복귀)";
+            
+            const info = await getOneFromDB('Buildings', currentBuildingId);
+            if(info) {
+                document.getElementById('b-name').value = info.name || '';
+                document.getElementById('b-address').value = info.address || '';
+                document.getElementById('b-region').value = info.region || '';
+                document.getElementById('b-alias').value = info.alias || '';
+                document.getElementById('b-floors-up').value = info.floors_up || '';
+                document.getElementById('b-floors-down').value = info.floors_down || '';
+                document.getElementById('b-area').value = info.area || '';
+                document.getElementById('b-units').value = info.units || '';
+                document.getElementById('b-late-fee').value = info.late_fee_rate || '';
+                document.getElementById('b-levy-method').value = info.levy_method || '1/N';
+                document.getElementById('b-billing-timing').value = info.billing_timing || 'current';
+                document.getElementById('b-due-day').value = info.due_day || '';
+                document.getElementById('b-contact').value = info.contact || '';
+            }
+        }
+
+        // 호실 정보 단독 추가/설정 모드
+        function editRoomsConfig() {
+            isEditMode = true;
+            hideAllViews();
+            document.getElementById('view-step2').style.display = 'block';
+            
+            // 헤더 UI를 돌아가기 버튼으로 교체
+            const header = document.querySelector('#view-step2 .card-header');
+            header.innerHTML = `
+                <span class="fw-bold">✏️ 호실 일괄 추가/설정</span>
+                <button class="btn btn-sm btn-light text-success fw-bold py-0" onclick="switchTab('building')">완료 (돌아가기)</button>
+            `;
+            loadRoomsStep();
+        }
+
+        // 1단계 창에서 취소 버튼 클릭 시
+        function cancelStep1() {
+            if (isEditMode) switchTab('dashboard'); // 수정 중이었으면 대시보드로
+            else showBuildingList(); // 새 건물 등록 중이었으면 로비로
+        }
+
+        // 1단계: 건물 폼 저장 이벤트
+        document.getElementById('building-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if(!currentBuildingId) currentBuildingId = 'bld_' + Date.now();
+            const data = {
+                id: currentBuildingId,
+                name: document.getElementById('b-name').value,
+                address: document.getElementById('b-address').value,
+                region: document.getElementById('b-region').value,
+                alias: document.getElementById('b-alias').value,
+                floors_up: parseInt(document.getElementById('b-floors-up').value) || 0,
+                floors_down: parseInt(document.getElementById('b-floors-down').value) || 0,
+                area: parseInt(document.getElementById('b-area').value) || 0,
+                units: parseInt(document.getElementById('b-units').value) || 0,
+                late_fee_rate: parseFloat(document.getElementById('b-late-fee').value) || 0,
+                levy_method: document.getElementById('b-levy-method').value,
+                billing_timing: document.getElementById('b-billing-timing').value,
+                due_day: document.getElementById('b-due-day').value,
+                contact: document.getElementById('b-contact').value
+            };
+            await saveToDB('Buildings', data);
+            await logAdvancedHistory(data.name, '건물 정보 세팅(1단계)', data.address);
+            if (isEditMode) {
+                switchTab('dashboard'); // 수정 완료 시 대시보드로 돌아가기
+            } else {
+                showStep(2); // 새 건물일 땐 2단계로 이동
+            }
+        });
+
+        // 2단계: 호실 관리 로직
+        async function loadRoomsStep() {
+            const rooms = await getAllFromDB('Rooms');
+            const floors = {};
+            rooms.forEach(r => {
+                let floorKey = 0; let displayFloor = "";
+                const match = r.room_no.match(/^(B)?(\d+)(\d{2})호?$/); 
+                if (match) {
+                    const isBasement = match[1] === 'B';
+                    const floorNum = parseInt(match[2]);
+                    floorKey = isBasement ? -floorNum : floorNum;
+                    displayFloor = isBasement ? `지하 ${floorNum}층` : `${floorNum}층`;
+                } else { floorKey = -999; displayFloor = "기타"; }
+
+                if (!floors[floorKey]) floors[floorKey] = { name: displayFloor, rooms: [] };
+                floors[floorKey].rooms.push(r);
+            });
+
+            const sortedKeys = Object.keys(floors).sort((a, b) => parseInt(b) - parseInt(a));
+            const container = document.getElementById('room-list-area');
+            container.innerHTML = '';
+
+            sortedKeys.forEach(key => {
+                const floorData = floors[key];
+                floorData.rooms.sort((a, b) => a.room_no.localeCompare(b.room_no, undefined, {numeric: true}));
+                const floorRow = document.createElement('div');
+                floorRow.className = 'mb-3 pb-2 border-bottom';
+                let badgesHtml = '';
+                floorData.rooms.forEach(r => {
+                    badgesHtml += `
+                        <span class="badge bg-secondary room-badge me-1 mb-1">
+                            ${r.room_no} 
+                            <span class="room-action" onclick="deleteRoom('${r.room_no}')" title="삭제">🗑️</span>
+                        </span>`;
+                });
+                floorRow.innerHTML = `<h6 class="text-primary fw-bold mb-2">${floorData.name}</h6><div class="d-flex flex-wrap">${badgesHtml}</div>`;
+                container.appendChild(floorRow);
+            });
+        }
+        async function addRoom() {
+            const roomNo = document.getElementById('reg-room-no').value.trim();
+            if(!roomNo) return alert('호실명을 입력해주세요.');
+            await saveToDB('Rooms', { room_no: roomNo, tenant: '' });
+            await logAdvancedHistory('호실관리', `호실 추가`, roomNo);
+            document.getElementById('reg-room-no').value = '';
+            loadRoomsStep();
+        }
+        function loadFloorSettings() {
+            const upInput = document.getElementById('b-floors-up');
+            let up = Number(upInput.value);
+            if (upInput.value === '' && upInput.placeholder) up = Number(upInput.placeholder);
+            const down = Number(document.getElementById('b-floors-down').value) || 0;
+            
+            if(up === 0 && down === 0) return alert('층수 정보가 없습니다. 1단계로 돌아가서 확인해주세요.');
+
+            const container = document.getElementById('floor-config-area');
+            let html = '<p class="small text-muted mb-2">각 층의 호실 개수를 입력하세요.</p>';
+            container.style.display = 'block';
+
+            for(let i = down; i >= 1; i--) {
+                html += `<div class="input-group input-group-sm mb-2"><span class="input-group-text" style="width: 80px;">지하 ${i}층</span>
+                         <input type="number" class="form-control floor-input" data-floor-type="B" data-floor="${i}" value="2"></div>`;
+            }
+            for(let i = 1; i <= up; i++) {
+                html += `<div class="input-group input-group-sm mb-2"><span class="input-group-text" style="width: 80px;">${i}층</span>
+                         <input type="number" class="form-control floor-input" data-floor-type="F" data-floor="${i}" value="4"></div>`;
+            }
+            html += `<button class="btn btn-sm btn-success w-100 mt-2" onclick="generateRoomsFromConfig()">호실 일괄 생성</button>`;
+            container.innerHTML = html;
+        }
+        async function generateRoomsFromConfig() {
+            if(!confirm('입력된 설정대로 호실을 생성하시겠습니까?')) return;
+            const inputs = document.querySelectorAll('.floor-input');
+            for (const input of inputs) {
+                const count = parseInt(input.value) || 0;
+                const floor = input.dataset.floor;
+                const type = input.dataset.floorType;
+                for(let r = 1; r <= count; r++) {
+                    const subNo = r.toString().padStart(2, '0');
+                    const roomNo = type === 'B' ? `B${floor}${subNo}호` : `${floor}${subNo}호`;
+                    await saveToDB('Rooms', { room_no: roomNo, area: 0 });
+                }
+            }
+            await logAdvancedHistory('호실관리', '층별 호실 자동 생성 실행', '일괄처리');
+            alert('생성이 완료되었습니다.');
+            loadRoomsStep();
+            document.getElementById('floor-config-area').style.display = 'none';
+        }
+        async function deleteRoom(roomNo) {
+            if(confirm(`[${roomNo}]을 삭제하시겠습니까?`)) {
+                await deleteFromDB('Rooms', roomNo);
+                loadRoomsStep();
+            }
+        }
+
+        // --- [호실 통합 관리 및 상세 수정 로직] ---
+        async function loadRoomManagementList() {
+            const rooms = await getAllFromDB('Rooms');
+            const list = document.getElementById('room-manage-list');
+            list.innerHTML = '';
+
+            if(rooms.length === 0) {
+                list.innerHTML = '<div class="text-center py-5 text-muted">등록된 호실이 없습니다.</div>';
+                return;
+            }
+
+            // 정렬: 저층 우선 (B2 -> B1 -> 1 -> 2 ...)
+            rooms.sort((a, b) => {
+                const getFloor = (roomNo) => {
+                    const match = roomNo.match(/^(B)?(\d+)(\d{2})호?$/);
+                    if (!match) return 9999;
+                    return (match[1] === 'B' ? -1 : 1) * parseInt(match[2]);
+                };
+                const floorA = getFloor(a.room_no);
+                const floorB = getFloor(b.room_no);
+                if (floorA !== floorB) return floorA - floorB;
+                return a.room_no.localeCompare(b.room_no, undefined, {numeric: true});
+            });
+
+            rooms.forEach(r => {
+                let mainCar = '-';
+                if(r.vehicles && r.vehicles.length > 0) {
+                    const primary = r.vehicles.find(v => v.is_primary) || r.vehicles[0];
+                    if(primary && primary.no) mainCar = primary.no;
+                }
+                const areaStr = r.area ? `${r.area}㎡` : '면적 미입력';
+                
+                // [수정] 계약 종류를 호실 번호 아래에 고정 배지로 표시 (미지정 상태도 표시)
+                const typeText = r.tenant_contract_type || '미지정';
+                const typeClass = r.tenant_contract_type ? 'bg-primary' : 'bg-secondary bg-opacity-50 text-dark';
+                const contractBadge = `<span class="badge ${typeClass} mt-1" style="font-size:0.65rem; padding:0.25rem 0.4rem;">${typeText}</span>`;
+
+                const item = document.createElement('div');
+                item.className = 'list-group-item room-manage-item d-flex justify-content-between align-items-center py-3';
+                item.innerHTML = `
+                    <div class="d-flex align-items-center" style="width: 85%;">
+                        <div class="d-flex flex-column align-items-center me-3" style="min-width: 75px;">
+                            <div class="fw-bold fs-5 text-center">${r.room_no}</div>
+                            ${contractBadge}
+                        </div>
+                        <div class="vr me-3"></div>
+                        <div class="d-flex flex-column">
+                            <div class="fw-bold">${r.tenant_name || '<span class="text-muted fw-normal">세입자 없음</span>'} <span class="badge bg-light text-secondary border ms-1">${areaStr}</span></div>
+                            <div class="small text-muted">📞 ${r.tenant_contact || '-'}</div>
+                            <div class="small text-muted">🚗 ${mainCar}</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm" onclick="openRoomDetailModal('${r.room_no}')">수정</button>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        let currentVehicles = []; 
+        let currentVehicleIndex = 0;
+
+        async function openRoomDetailModal(roomNo) {
+            const data = await getOneFromDB('Rooms', roomNo);
+            if(!data) return alert('데이터를 찾을 수 없습니다.');
+
+            document.getElementById('roomDetailLabel').innerText = `${roomNo} 상세 정보 수정`;
+            document.getElementById('detail-room-no').value = roomNo;
+            document.getElementById('room-usage').value = data.usage_type || '공동주택';
+            document.getElementById('room-area').value = data.area || '';
+            
+            document.getElementById('landlord-name').value = data.landlord_name || '';
+            document.getElementById('landlord-contact').value = data.landlord_contact || '';
+            document.getElementById('landlord-date').value = data.landlord_date || '';
+            
+            document.getElementById('tenant-contract-type').value = data.tenant_contract_type || '';
+            document.getElementById('tenant-name').value = data.tenant_name || '';
+            document.getElementById('tenant-contact').value = data.tenant_contact || '';
+            document.getElementById('tenant-date').value = data.tenant_date || '';
+            document.getElementById('tenant-period').value = data.contract_period || '';
+
+            currentVehicles = data.vehicles || [];
+            while(currentVehicles.length < 3) {
+                currentVehicles.push({ no: '', model: '', maker: '', type: '승용차', is_primary: false });
+            }
+
+            renderVehicleUI(0);
+            
+            document.getElementById('rh-date').valueAsDate = new Date();
+            renderRoomHistory(data.room_history || []);
+            
+            new bootstrap.Modal(document.getElementById('roomDetailModal')).show();
+        }
+
+        function renderVehicleUI(selectedIndex) {
+            currentVehicleIndex = selectedIndex;
+            const btnContainer = document.getElementById('vehicle-select-btns');
+            btnContainer.innerHTML = '';
+
+            currentVehicles.forEach((v, idx) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const carNo = v.no ? v.no : `차량 ${idx+1} (미등록)`;
+                btn.className = `vehicle-btn ${idx === selectedIndex ? 'active' : ''} ${!v.no ? 'empty' : ''}`;
+                btn.innerHTML = `${carNo} ${v.is_primary ? '⭐' : ''}`;
+                btn.onclick = () => { saveCurrentVehicleInput(); renderVehicleUI(idx); };
+                btnContainer.appendChild(btn);
+            });
+
+            const v = currentVehicles[selectedIndex];
+            document.getElementById('vehicle-detail-form').innerHTML = `
+                <div class="mb-2"><label class="small fw-bold">차량 번호</label><input type="text" id="v-no" class="form-control form-control-sm" value="${v.no || ''}" placeholder="12가3456"></div>
+                <div class="mb-2"><label class="small fw-bold">차량명/모델</label><input type="text" id="v-model" class="form-control form-control-sm" value="${v.model || ''}" placeholder="그랜저"></div>
+                <div class="mb-2"><label class="small fw-bold">차종</label><select id="v-type" class="form-select form-select-sm">
+                    <option value="승용차" ${v.type === '승용차' ? 'selected' : ''}>승용차</option>
+                    <option value="SUV" ${v.type === 'SUV' ? 'selected' : ''}>SUV</option>
+                    <option value="경차" ${v.type === '경차' ? 'selected' : ''}>경차</option>
+                    <option value="트럭" ${v.type === '트럭' ? 'selected' : ''}>트럭</option>
+                </select></div>
+                <div class="form-check mt-3"><input class="form-check-input" type="checkbox" id="v-primary" ${v.is_primary ? 'checked' : ''}><label class="form-check-label small" for="v-primary">대표 차량으로 설정</label></div>
+            `;
+        }
+
+        function saveCurrentVehicleInput() {
+            const no = document.getElementById('v-no').value.trim();
+            const isPrimary = document.getElementById('v-primary').checked;
+            if(isPrimary) currentVehicles.forEach(v => v.is_primary = false);
+            currentVehicles[currentVehicleIndex] = { no, model: document.getElementById('v-model').value.trim(), type: document.getElementById('v-type').value, is_primary: isPrimary };
+        }
+
+        async function saveRoomDetail() {
+            saveCurrentVehicleInput();
+            const roomNo = document.getElementById('detail-room-no').value;
+            const oldData = await getOneFromDB('Rooms', roomNo);
+            
+            const newData = { 
+                ...oldData, 
+                usage_type: document.getElementById('room-usage').value,
+                area: parseFloat(document.getElementById('room-area').value) || 0, 
+                landlord_name: document.getElementById('landlord-name').value, 
+                landlord_contact: document.getElementById('landlord-contact').value, 
+                landlord_date: document.getElementById('landlord-date').value, 
+                tenant_contract_type: document.getElementById('tenant-contract-type').value,
+                tenant_name: document.getElementById('tenant-name').value, 
+                tenant_contact: document.getElementById('tenant-contact').value, 
+                tenant_date: document.getElementById('tenant-date').value, 
+                contract_period: document.getElementById('tenant-period').value, 
+                vehicles: currentVehicles.filter(v => v.no !== '') 
+            };
+            
+            await saveToDB('Rooms', newData);
+            await logAdvancedHistory(roomNo, '호실 상세 정보 수정', '임대인/임차인/차량 정보 갱신');
+            bootstrap.Modal.getInstance(document.getElementById('roomDetailModal')).hide();
+            loadRoomManagementList();
+        }
+
+        // --- 호실 계약 및 히스토리 제어 로직 ---
+        function handleContractTypeChange() {
+            const type = document.getElementById('tenant-contract-type').value;
+            if (type === '직주') {
+                document.getElementById('tenant-name').value = document.getElementById('landlord-name').value;
+            } else if (type === '공실' || type === '미분양') {
+                document.getElementById('tenant-name').value = '';
+                document.getElementById('tenant-contact').value = '';
+                document.getElementById('tenant-date').value = '';
+                document.getElementById('tenant-period').value = '';
+            }
+        }
+
+        async function renderRoomHistory(historyArr) {
+            const list = document.getElementById('room-history-list');
+            list.innerHTML = '';
+            if(!historyArr || historyArr.length === 0) {
+                list.innerHTML = '<li class="list-group-item text-center text-muted border-0">등록된 히스토리가 없습니다.</li>';
+                return;
+            }
+            
+            // 날짜 최신순 정렬
+            historyArr.sort((a,b) => new Date(b.date) - new Date(a.date));
+            
+            historyArr.forEach(h => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center py-1 px-2 border-0 border-bottom';
+                li.innerHTML = `
+                    <div>
+                        <span class="text-muted me-2" style="font-size: 0.75rem;">${h.date}</span>
+                        <span>${h.content}</span>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-link text-primary p-0 me-2 text-decoration-none" onclick="editRoomHistory('${h.id}')">수정</button>
+                        <button type="button" class="btn btn-sm btn-link text-danger p-0 text-decoration-none" onclick="deleteRoomHistory('${h.id}')">삭제</button>
+                    </div>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        async function addRoomHistory() {
+            const roomNo = document.getElementById('detail-room-no').value;
+            const date = document.getElementById('rh-date').value;
+            const content = document.getElementById('rh-content').value.trim();
+            if(!roomNo || !content) return alert('내용을 입력해주세요.');
+
+            const room = await getOneFromDB('Rooms', roomNo);
+            if(!room) return;
+
+            if(!room.room_history) room.room_history = [];
+            room.room_history.push({ id: 'rh_' + Date.now(), date: date, content: content });
+            await saveToDB('Rooms', room);
+            document.getElementById('rh-content').value = '';
+            renderRoomHistory(room.room_history);
+        }
+
+        async function editRoomHistory(hId) {
+            const roomNo = document.getElementById('detail-room-no').value;
+            const room = await getOneFromDB('Rooms', roomNo);
+            if(!room || !room.room_history) return;
+            const hist = room.room_history.find(h => h.id === hId);
+            if(!hist) return;
+            const newContent = prompt('히스토리 내용을 수정하세요:', hist.content);
+            if(newContent === null) return;
+            hist.content = newContent.trim() || hist.content;
+            await saveToDB('Rooms', room);
+            renderRoomHistory(room.room_history);
+        }
+
+        async function deleteRoomHistory(hId) {
+            if(!confirm('해당 히스토리를 삭제하시겠습니까?')) return;
+            const roomNo = document.getElementById('detail-room-no').value;
+            const room = await getOneFromDB('Rooms', roomNo);
+            if(!room || !room.room_history) return;
+            room.room_history = room.room_history.filter(h => h.id !== hId);
+            await saveToDB('Rooms', room);
+            renderRoomHistory(room.room_history);
+        }
+
+        // 3~4단계: 지출 항목 로직
+        async function loadFixedExpensesStep() {
+            populateExpenseSelect('fixed-expense-select', FIXED_EXPENSE_GROUPS);
+            const savedItems = await getAllFromDB('ExpenseItems');
+            const items = savedItems.filter(item => item.type === 'fixed' || Object.keys(FIXED_EXPENSE_GROUPS).includes(item.group));
+            renderGroupedItems(document.getElementById('fixed-items-box'), items, 'fixed');
+        }
+        async function loadVariableExpensesStep() {
+            populateExpenseSelect('variable-expense-select', VARIABLE_EXPENSE_GROUPS);
+            const savedItems = await getAllFromDB('ExpenseItems');
+            const items = savedItems.filter(item => item.type === 'variable' || Object.keys(VARIABLE_EXPENSE_GROUPS).includes(item.group));
+            renderGroupedItems(document.getElementById('variable-items-box'), items, 'variable');
+        }
+        function populateExpenseSelect(elementId, groupData) {
+            const select = document.getElementById(elementId);
+            if (!select || select.options.length > 1) return; 
+            select.innerHTML = '<option value="">항목 선택...</option>';
+            for (const [group, items] of Object.entries(groupData)) {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = group;
+                items.forEach(itemName => {
+                    const option = document.createElement('option');
+                    option.value = itemName; option.text = itemName; option.dataset.group = group;
+                    optgroup.appendChild(option);
+                });
+                select.appendChild(optgroup);
+            }
+        }
+        async function addFixedItemFromSelect() {
+            const select = document.getElementById('fixed-expense-select');
+            if (!select.value) return alert('항목을 선택해주세요.');
+            const existing = await getOneFromDB('ExpenseItems', select.value);
+            if(existing) return alert('이미 등록된 항목입니다.');
+            await saveToDB('ExpenseItems', { item_name: select.value, group: select.options[select.selectedIndex].dataset.group, type: 'fixed', amount: 0 });
+            loadFixedExpensesStep(); select.value = '';
+        }
+        async function addVariableItemFromSelect() {
+            const select = document.getElementById('variable-expense-select');
+            if (!select.value) return alert('항목을 선택해주세요.');
+            const existing = await getOneFromDB('ExpenseItems', select.value);
+            if(existing) return alert('이미 등록된 항목입니다.');
+            await saveToDB('ExpenseItems', { item_name: select.value, group: select.options[select.selectedIndex].dataset.group, type: 'variable', amount: 0 });
+            loadVariableExpensesStep(); select.value = '';
+        }
+        async function addCustomItem(type) {
+            const prefix = type === 'fixed' ? 'custom-fixed' : 'custom-variable';
+            const groupName = document.getElementById(`${prefix}-group`).value.trim();
+            const itemName = document.getElementById(`${prefix}-item`).value.trim();
+            if (!groupName || !itemName) return alert("그룹명과 항목명을 모두 입력해주세요.");
+            const existing = await getOneFromDB('ExpenseItems', itemName);
+            if(existing) return alert('이미 등록된 항목입니다.');
+            await saveToDB('ExpenseItems', { item_name: itemName, group: groupName, type: type, amount: 0 });
+            document.getElementById(`${prefix}-group`).value = ''; document.getElementById(`${prefix}-item`).value = '';
+            if (type === 'fixed') loadFixedExpensesStep(); else loadVariableExpensesStep();
+        }
+        function renderGroupedItems(container, items, type) {
+            if (items.length === 0) { container.innerHTML = '<div class="text-muted small w-100 text-center py-4">추가된 항목이 없습니다.</div>'; return; }
+            const groups = {};
+            items.forEach(item => { const gName = item.group || '기타'; if (!groups[gName]) groups[gName] = []; groups[gName].push(item); });
+
+            container.innerHTML = '';
+            const badgeColor = type === 'fixed' ? 'bg-primary' : 'bg-info text-dark';
+
+            for (const [groupName, groupItems] of Object.entries(groups)) {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'mb-4';
+                groupDiv.innerHTML = `<div class="d-flex align-items-center mb-2"><span class="fw-bold me-2">📂 ${groupName}</span></div>`;
+                const badgesDiv = document.createElement('div');
+                badgesDiv.className = 'd-flex flex-wrap gap-2';
+                
+                groupItems.forEach(item => {
+                    const badge = document.createElement('div');
+                    badge.className = `badge ${badgeColor} p-2 d-flex align-items-center`;
+                    badge.innerHTML = `
+                        <span class="me-2">${item.item_name}</span>
+                        <span class="ms-2" onclick="deleteExpenseItem('${item.item_name}', '${type}')" style="cursor:pointer;">&times;</span>
+                    `;
+                    badgesDiv.appendChild(badge);
+                });
+                groupDiv.appendChild(badgesDiv); container.appendChild(groupDiv);
+            }
+        }
+        async function deleteExpenseItem(itemName, type) {
+            if (confirm(`[${itemName}] 항목을 삭제하시겠습니까?`)) {
+                await deleteFromDB('ExpenseItems', itemName);
+                if (type === 'fixed') loadFixedExpensesStep(); else loadVariableExpensesStep();
+            }
+        }
+
+        // 마법사 완료
+        async function finishSetup() {
+            const bId = currentBuildingId;
+            const info = await getOneFromDB('Buildings', bId);
+            if(info) {
+                info.setup_completed = true;
+                await saveToDB('Buildings', info);
+                await logAdvancedHistory(info.name, '건물 초기 세팅 완료', info.address);
+            }
+            alert('모든 설정이 완료되었습니다! 대시보드로 이동합니다.');
+            selectBuilding(bId);
+        }
+
+        // 건물 선택 시 (대시보드로 진입)
+        async function selectBuilding(id) {
+            currentBuildingId = id;
+            const b = await getOneFromDB('Buildings', id);
+            if(b) {
+                const displayName = b.name + (b.alias ? ` (${b.alias})` : '');
+                document.getElementById('dash-building-search').value = displayName;
+                document.getElementById('dash-building-dropdown').style.display = 'none';
+                
+                // [NEW] 상단 헤더에 건물명 표시
+                const headerBName = document.getElementById('header-building-name');
+                if(headerBName) { headerBName.innerText = displayName; headerBName.style.display = 'inline-block'; }
+                
+                switchTab('dashboard'); // 메인 대시보드로 이동
+            }
+        }
+
+        // --- 대시보드 검색(드롭다운) 로직 ---
+        async function showBuildingDropdown() {
+            const buildings = await getAllFromDB('Buildings');
+            const dropdown = document.getElementById('dash-building-dropdown');
+            dropdown.innerHTML = '';
+            
+            if(buildings.length === 0) {
+                dropdown.innerHTML = '<div class="p-3 text-muted small text-center">등록된 건물이 없습니다.</div>';
+            } else {
+                buildings.forEach(b => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'list-group-item list-group-item-action dash-dropdown-item';
+                    btn.dataset.searchText = `${b.name} ${b.region} ${b.alias}`.toLowerCase();
+                    btn.onclick = () => selectBuilding(b.id);
+                    btn.innerHTML = `<span class="fw-bold">${b.name}</span> <span class="small text-muted ms-2">${b.region}</span> ${b.alias ? `<span class="badge bg-light text-dark border ms-1">${b.alias}</span>` : ''}`;
+                    dropdown.appendChild(btn);
+                });
+            }
+            dropdown.style.display = 'block';
+        }
+
+        function filterBuildingDropdown() {
+            const keyword = document.getElementById('dash-building-search').value.toLowerCase();
+            document.querySelectorAll('.dash-dropdown-item').forEach(item => {
+                item.style.display = item.dataset.searchText.includes(keyword) ? 'block' : 'none';
+            });
+        }
+
+        // 바탕화면 클릭 시 드롭다운 닫기
+        document.addEventListener('click', async function(event) {
+            const dropdown = document.getElementById('dash-building-dropdown');
+            const searchInput = document.getElementById('dash-building-search');
+            if (dropdown && searchInput && !searchInput.contains(event.target) && !dropdown.contains(event.target)) {
+                dropdown.style.display = 'none';
+                if(currentBuildingId) {
+                    const b = await getOneFromDB('Buildings', currentBuildingId);
+                    if(b) searchInput.value = b.name + (b.alias ? ` (${b.alias})` : '');
+                } else {
+                    searchInput.value = '';
+                }
+            }
+        });
+
+        // --- [건물관리 내부 탭 전환 로직] ---
+        function switchBuildingSubTab(tabName) {
+            ['safety', 'room', 'vehicle'].forEach(t => {
+                const btn = document.getElementById(`tab-bldg-${t}`);
+                const content = document.getElementById(`tab-content-bldg-${t}`);
+                if(t === tabName) { 
+                    btn.classList.add('active', 'text-dark'); btn.classList.remove('text-muted'); 
+                    content.style.display = 'block'; 
+                } else { 
+                    btn.classList.remove('active', 'text-dark'); btn.classList.add('text-muted'); 
+                    content.style.display = 'none'; 
+                }
+            });
+
+            if(tabName === 'room') {
+                loadRoomManagementList();
+            }
+        }
+
+        // --- [회계 및 관리비 비즈니스 로직] ---
+        function switchExpenseMainTab(tabName) {
+            ['transaction', 'regular', 'periodic', 'settlement', 'collection', 'levy'].forEach(t => {
+                const btn = document.getElementById(`tab-main-${t}`);
+                const content = document.getElementById(`tab-content-${t}`);
+                if(t === tabName) { btn.classList.add('active', 'text-dark'); btn.classList.remove('text-muted'); content.style.display = 'block'; } 
+                else { btn.classList.remove('active', 'text-dark'); btn.classList.add('text-muted'); content.style.display = 'none'; }
+            });
+
+            if(tabName === 'regular') loadRegularExpenses();
+            if(tabName === 'periodic') loadPeriodicExpenses();
+            if(tabName === 'levy') {
+                if(!document.getElementById('levy-month').value) {
+                    const now = new Date(); const yyyy = now.getFullYear(); const mm = String(now.getMonth() + 1).padStart(2, '0');
+                    const lastDay = new Date(yyyy, mm, 0).getDate();
+                    if(document.getElementById('levy-due-date')) document.getElementById('levy-due-date').value = `${yyyy}-${mm}-${lastDay}`;
+                    document.getElementById('levy-month').value = `${yyyy}-${mm}`;
+                }
+                loadLevyList();
+            }
+            if(tabName === 'collection') {
+                if(!document.getElementById('collection-month').value) {
+                    const now = new Date(); const yyyy = now.getFullYear(); const mm = String(now.getMonth() + 1).padStart(2, '0');
+                    document.getElementById('collection-month').value = `${yyyy}-${mm}`;
+                }
+                if(!document.getElementById('coll-date').value) document.getElementById('coll-date').valueAsDate = new Date();
+                if(!document.getElementById('coll-room').options || document.getElementById('coll-room').options.length <= 1) populateCollectionRoomSelect();
+                loadCollectionStatus();
+            }
+            if(tabName === 'settlement') loadSettlement();
+            if(tabName === 'transaction') {
+                if(!document.getElementById('a-date').value) document.getElementById('a-date').valueAsDate = new Date();
+                loadAccounting();
+            }
+        }
+
+        // --- 정기/기간 지출 탭 로직 ---
+        async function loadRegularExpenses() {
+            const items = await getAllFromDB('ExpenseItems');
+            const regularItems = items.filter(item => item.type === 'fixed' || item.type === 'variable');
+            const tbody = document.getElementById('regular-expense-tbody');
+            tbody.innerHTML = '';
+            if(regularItems.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-muted py-3">등록된 정기지출 항목이 없습니다. (건물 설정 3,4단계에서 추가)</td></tr>';
+                return;
+            }
+            regularItems.forEach(item => {
+                const amount = item.amount || 0;
+                const cycle = item.cycle || '매월';
+                let monthly = amount;
+                if(cycle === '매년') monthly = Math.floor(amount / 12);
+                else if(cycle === '반기') monthly = Math.floor(amount / 6);
+                else if(cycle === '분기') monthly = Math.floor(amount / 3);
+                else if(cycle === '일회성') monthly = 0;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="fw-bold text-primary text-start px-2">${item.item_name} <br><span class="badge bg-light text-secondary border" style="font-size:0.65rem">${item.group||'기본'}</span></td>
+                    <td>${amount.toLocaleString()}원</td>
+                    <td><span class="badge bg-secondary bg-opacity-10 text-dark border">${cycle}</span></td>
+                    <td class="text-danger fw-bold">${monthly.toLocaleString()}원</td>
+                    <td><button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="openExpenseModal('edit', '${item.item_name}')">수정</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadPeriodicExpenses() {
+            const items = await getAllFromDB('ExpenseItems');
+            const periodicItems = items.filter(item => item.type === 'periodic');
+            const tbody = document.getElementById('periodic-expense-tbody');
+            tbody.innerHTML = '';
+            if(periodicItems.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-muted py-3">등록된 기간지출 항목이 없습니다.</td></tr>';
+                return;
+            }
+            periodicItems.forEach(item => {
+                const amount = item.amount || 0;
+                const cycle = item.cycle || '일회성';
+                let monthly = amount;
+                if(cycle === '매년') monthly = Math.floor(amount / 12);
+                else if(cycle === '반기') monthly = Math.floor(amount / 6);
+                else if(cycle === '분기') monthly = Math.floor(amount / 3);
+                else if(cycle === '일회성') monthly = 0;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="fw-bold text-info text-start px-2">${item.item_name}</td>
+                    <td>${amount.toLocaleString()}원</td>
+                    <td><span class="badge bg-secondary bg-opacity-10 text-dark border">${cycle}</span></td>
+                    <td class="text-danger fw-bold">${monthly.toLocaleString()}원</td>
+                    <td class="text-truncate text-start px-2" style="max-width: 150px;" title="${item.details||''}"><small class="text-muted">${item.details||'-'}</small></td>
+                    <td>
+                        <div class="d-flex flex-column gap-1 align-items-center">
+                            <button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;" onclick="openExpenseModal('edit', '${item.item_name}')">수정</button>
+                            <button class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:0.75rem;" onclick="deleteExpenseItemBtn('${item.item_name}')">삭제</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        let expenseModalInst = null;
+        async function openExpenseModal(action, itemName = '') {
+            if(!expenseModalInst) expenseModalInst = new bootstrap.Modal(document.getElementById('expenseDetailModal'));
+            document.getElementById('expense-detail-form').reset();
+            
+            if(action === 'periodic') {
+                document.getElementById('expenseDetailLabel').innerText = '기간지출 생성';
+                document.getElementById('exp-original-name').value = '';
+                document.getElementById('exp-type').value = 'periodic';
+                document.getElementById('exp-cycle').value = '일회성';
+                document.getElementById('exp-name').readOnly = false;
+            } else if(action === 'edit') {
+                document.getElementById('expenseDetailLabel').innerText = '지출 항목 상세 수정';
+                const item = await getOneFromDB('ExpenseItems', itemName);
+                if(!item) return;
+                document.getElementById('exp-original-name').value = item.item_name;
+                document.getElementById('exp-name').value = item.item_name;
+                document.getElementById('exp-name').readOnly = true;
+                document.getElementById('exp-type').value = item.type;
+                document.getElementById('exp-amount').value = item.amount || 0;
+                document.getElementById('exp-cycle').value = item.cycle || (item.type === 'periodic' ? '일회성' : '매월');
+                document.getElementById('exp-details').value = item.details || '';
+            }
+            expenseModalInst.show();
+        }
+
+        async function saveExpenseDetail() {
+            const origName = document.getElementById('exp-original-name').value;
+            const newName = document.getElementById('exp-name').value.trim();
+            const type = document.getElementById('exp-type').value;
+            const amount = parseInt(document.getElementById('exp-amount').value) || 0;
+            const cycle = document.getElementById('exp-cycle').value;
+            const details = document.getElementById('exp-details').value.trim();
+
+            if(!newName) return alert('항목명을 입력해주세요.');
+
+            let oldData = {};
+            if(origName) {
+                oldData = await getOneFromDB('ExpenseItems', origName);
+            } else {
+                const existing = await getOneFromDB('ExpenseItems', newName);
+                if(existing) return alert('이미 존재하는 항목명입니다.');
+            }
+
+            const dataToSave = { ...oldData, item_name: newName, type: type, amount: amount, cycle: cycle, details: details };
+            if(!dataToSave.group && type === 'periodic') dataToSave.group = '기타';
+
+            await saveToDB('ExpenseItems', dataToSave);
+            await logAdvancedHistory('지출관리', type === 'periodic' ? '기간지출 등록/수정' : '정기지출 수정', newName);
+            expenseModalInst.hide();
+
+            if(type === 'periodic') loadPeriodicExpenses();
+            else loadRegularExpenses();
+        }
+
+        async function deleteExpenseItemBtn(itemName) {
+            if(confirm(`[${itemName}] 항목을 삭제하시겠습니까?`)) {
+                const item = await getOneFromDB('ExpenseItems', itemName);
+                await deleteFromDB('ExpenseItems', itemName);
+                await logAdvancedHistory('지출관리', '지출 항목 삭제', itemName);
+                if(item && item.type === 'periodic') loadPeriodicExpenses();
+                else loadRegularExpenses();
+            }
+        }
+
+        // 1. 거래내역서 (장부) 로직
+        document.getElementById('accounting-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                id: 'acc_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+                date: document.getElementById('a-date').value,
+                type: document.getElementById('a-type').value,
+                desc: document.getElementById('a-desc').value,
+                amount: parseInt(document.getElementById('a-amount').value)
+            };
+            await saveToDB('Accounting', data);
+            await logAdvancedHistory(data.desc, '회계 장부 등록', `${data.type==='income'?'수입':'지출'} ${data.amount.toLocaleString()}원`);
+            document.getElementById('a-desc').value = ''; document.getElementById('a-amount').value = '';
+            loadAccounting();
+        });
+
+        async function loadAccounting() {
+            const transactions = await getAllFromDB('Accounting');
+            transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+            const list = document.getElementById('accounting-list');
+            list.innerHTML = '';
+            let balance = 0;
+
+            transactions.forEach(t => { if (t.type === 'income') balance += parseInt(t.amount); else balance -= parseInt(t.amount); });
+            document.getElementById('total-balance').innerText = balance.toLocaleString() + '원';
+
+            if(transactions.length === 0) list.innerHTML = '<li class="list-group-item text-center text-muted">등록된 내역이 없습니다.</li>';
+
+            transactions.forEach(t => {
+                const isIncome = t.type === 'income';
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center px-2 py-2';
+                li.innerHTML = `
+                    <div><div class="fw-bold">${t.desc}</div><small class="text-muted" style="font-size:0.75rem">${t.date} | ${isIncome ? '수입' : '지출'}</small></div>
+                    <div class="text-end">
+                        <span class="${isIncome ? 'income-text' : 'expense-text'} fw-bold">${isIncome ? '+' : '-'}${parseInt(t.amount).toLocaleString()}</span><br>
+                        <button class="btn btn-link btn-sm text-danger p-0 text-decoration-none" onclick="removeTransaction('${t.id}')">삭제</button>
+                    </div>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        async function removeTransaction(id) {
+            if(confirm('이 내역을 삭제하시겠습니까? 잔액에 영향을 줍니다.')) {
+                await deleteFromDB('Accounting', id);
+                await logAdvancedHistory('회계', '장부 내역 삭제', `ID: ${id}`);
+                loadAccounting();
+            }
+        }
+
+        // 2. 월별 결산 로직 (Chart.js 연동)
+        let settlementChartInstance = null;
+        async function loadSettlement() {
+            const transactions = await getAllFromDB('Accounting');
+            const summary = {}; const years = new Set();
+            
+            transactions.forEach(t => {
+                if(!t.date) return;
+                const dateObj = new Date(t.date);
+                const yyyy = dateObj.getFullYear();
+                const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                years.add(yyyy);
+                if(!summary[yyyy]) summary[yyyy] = {};
+                if(!summary[yyyy][mm]) summary[yyyy][mm] = { income: 0, expense: 0 };
+                if(t.type === 'income') summary[yyyy][mm].income += parseInt(t.amount || 0);
+                else summary[yyyy][mm].expense += parseInt(t.amount || 0);
+            });
+
+            const yearSelect = document.getElementById('settlement-year');
+            const currentVal = yearSelect.value;
+            yearSelect.innerHTML = '';
+            const sortedYears = Array.from(years).sort((a,b) => b-a);
+            if(sortedYears.length === 0) sortedYears.push(new Date().getFullYear());
+            sortedYears.forEach(y => { const opt = document.createElement('option'); opt.value = y; opt.text = y + '년'; yearSelect.appendChild(opt); });
+            if(currentVal && sortedYears.includes(parseInt(currentVal))) yearSelect.value = currentVal; else yearSelect.value = sortedYears[0];
+
+            const yearData = summary[yearSelect.value] || {};
+            const labels = []; const dataIncome = []; const dataExpense = []; const dataProfit = [];
+            let totalIncome = 0; let totalExpense = 0;
+
+            for(let i=1; i<=12; i++) {
+                const mm = String(i).padStart(2, '0');
+                labels.push(`${i}월`);
+                const d = yearData[mm] || { income: 0, expense: 0 };
+                dataIncome.push(d.income); dataExpense.push(d.expense); dataProfit.push(d.income - d.expense);
+                totalIncome += d.income; totalExpense += d.expense;
+            }
+
+            const ctx = document.getElementById('settlementChart').getContext('2d');
+            if(settlementChartInstance) settlementChartInstance.destroy();
+            settlementChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: '수입', data: dataIncome, backgroundColor: 'rgba(25, 135, 84, 0.7)', borderColor: 'rgba(25, 135, 84, 1)', borderWidth: 1 },
+                        { label: '지출', data: dataExpense, backgroundColor: 'rgba(220, 53, 69, 0.7)', borderColor: 'rgba(220, 53, 69, 1)', borderWidth: 1 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } }, plugins: { legend: { position: 'top' } } }
+            });
+
+            const tbody = document.getElementById('settlement-table-body');
+            tbody.innerHTML = '';
+            for(let i=0; i<12; i++) {
+                const inc = dataIncome[i]; const exp = dataExpense[i]; const profit = dataProfit[i];
+                if(inc === 0 && exp === 0) continue; 
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${i+1}월</td><td class="text-success">${inc>0?inc.toLocaleString():'-'}</td><td class="text-danger">${exp>0?exp.toLocaleString():'-'}</td><td class="fw-bold ${profit>=0?'text-primary':'text-danger'}">${profit!==0?profit.toLocaleString():'-'}</td>`;
+                tbody.appendChild(tr);
+            }
+            if(tbody.children.length === 0) tbody.innerHTML = '<tr><td colspan="4" class="text-muted py-3">데이터가 없습니다.</td></tr>';
+
+            const totalProfit = totalIncome - totalExpense;
+            document.getElementById('settlement-table-foot').innerHTML = `<tr><td>합계</td><td class="text-success">${totalIncome.toLocaleString()}</td><td class="text-danger">${totalExpense.toLocaleString()}</td><td class="${totalProfit>=0?'text-primary':'text-danger'}">${totalProfit.toLocaleString()}</td></tr>`;
+        }
+
+        // 3. 관리비 부과(Levy) 로직
+        function switchLevySubTab(mode) {
+            if(mode === 'status') {
+                document.getElementById('btn-levy-status').classList.add('active'); document.getElementById('btn-levy-meter').classList.remove('active');
+                document.getElementById('view-levy-status').style.display = 'block'; document.getElementById('view-levy-meter').style.display = 'none';
+            } else {
+                document.getElementById('btn-levy-status').classList.remove('active'); document.getElementById('btn-levy-meter').classList.add('active');
+                document.getElementById('view-levy-status').style.display = 'none'; document.getElementById('view-levy-meter').style.display = 'block';
+                if(!document.getElementById('meter-month').value) {
+                    const now = new Date(); document.getElementById('meter-month').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+                }
+                loadMeterTable();
+            }
+        }
+
+        async function createMonthlyLevy() {
+            const monthStr = document.getElementById('levy-month').value;
+            let dueDateStr = document.getElementById('levy-due-date').value;
+            if(!monthStr) return alert("부과할 연월을 선택해주세요.");
+            
+            const bInfo = await getOneFromDB('Buildings', currentBuildingId) || {};
+            const levyMethod = bInfo.levy_method || '1/N'; 
+            const billingTiming = bInfo.billing_timing || 'current'; 
+            const dueDay = parseInt(bInfo.due_day);
+
+            if(!dueDateStr) {
+                const [y, m] = monthStr.split('-').map(Number);
+                let targetYear = y; let targetMonth = m; 
+                if(billingTiming === 'next') { targetMonth = m + 1; if(targetMonth > 12) { targetYear++; targetMonth = 1; } }
+                let targetDay = dueDay; const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+                if(!targetDay || targetDay > lastDay) targetDay = lastDay;
+                dueDateStr = `${targetYear}-${String(targetMonth).padStart(2,'0')}-${String(targetDay).padStart(2,'0')}`;
+                document.getElementById('levy-due-date').value = dueDateStr;
+            }
+
+            const allLevies = await getAllFromDB('Levy');
+            const existing = allLevies.filter(l => l.month === monthStr);
+            if(existing.length > 0) {
+                if(!confirm(`이미 ${monthStr}월 부과 내역이 ${existing.length}건 존재합니다.\n기존 내역을 삭제하고 새로 생성하시겠습니까?`)) return;
+                for(const item of existing) await deleteFromDB('Levy', item.id);
+            }
+
+            const rooms = await getAllFromDB('Rooms');
+            if(rooms.length === 0) return alert("등록된 호실이 없습니다.");
+
+            const expenseItems = await getAllFromDB('ExpenseItems');
+            const fixedTotal = expenseItems.filter(item => item.type === 'fixed' || (item.group && FIXED_EXPENSE_GROUPS[item.group])).reduce((sum, item) => sum + (parseInt(item.amount) || 0), 0);
+            
+            let totalExclusiveArea = 0;
+            if(levyMethod === 'area') {
+                rooms.forEach(r => totalExclusiveArea += (parseFloat(r.area) || 0));
+                if(totalExclusiveArea === 0) return alert("등록된 호실의 전용면적 합계가 0입니다. 1/N 방식으로 부과하거나, 면적을 입력해주세요.");
+            }
+            
+            let count = 0;
+            for(const room of rooms) {
+                let amount = 0; let detailText = '';
+                if(levyMethod === 'area') {
+                    const roomArea = parseFloat(room.area) || 0;
+                    if(roomArea > 0) amount = Math.floor((fixedTotal * (roomArea / totalExclusiveArea)) / 10) * 10;
+                    detailText = `면적부과(${roomArea}㎡/${totalExclusiveArea}㎡)`;
+                } else {
+                    amount = Math.floor((fixedTotal / rooms.length) / 10) * 10;
+                    detailText = `균등부과(1/${rooms.length})`;
+                }
+                const levyData = {
+                    id: 'levy_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+                    month: monthStr, room_no: room.room_no, amount: amount,
+                    due_date: dueDateStr, status: 'unpaid', paid_date: null, details: `일반관리비 (${detailText})`
+                };
+                await saveToDB('Levy', levyData);
+                count++;
+            }
+            await logAdvancedHistory(monthStr, '월별 일괄 부과 생성', `${count}세대 / 총 ${fixedTotal.toLocaleString()}원`);
+            alert(`${count}세대에 대한 관리비 부과가 완료되었습니다.`);
+            loadLevyList();
+        }
+
+        async function loadLevyList() {
+            const monthStr = document.getElementById('levy-month').value;
+            const allLevies = await getAllFromDB('Levy');
+            const currentLevies = allLevies.filter(l => l.month === monthStr);
+            currentLevies.sort((a, b) => a.room_no.localeCompare(b.room_no, undefined, {numeric: true}));
+
+            const container = document.getElementById('levy-list');
+            container.innerHTML = '';
+            if(currentLevies.length === 0) { container.innerHTML = '<div class="text-center py-5 text-muted">부과 내역이 없습니다.</div>'; return; }
+
+            currentLevies.forEach(levy => {
+                const statusBadge = levy.status === 'paid' ? `<span class="badge bg-success">완납</span>` : `<span class="badge bg-secondary">미납</span>`;
+                const item = document.createElement('div');
+                item.className = 'list-group-item d-flex justify-content-between align-items-center py-2 px-2';
+                item.innerHTML = `
+                    <div class="fw-bold text-center" style="width: 50px;">${levy.room_no}</div>
+                    <div class="text-end pe-2 flex-grow-1">${levy.amount.toLocaleString()}원 <br><span class="text-muted" style="font-size:0.75rem">납기:${levy.due_date||'-'}</span></div>
+                    <div class="text-center px-1">${statusBadge}</div>
+                    <div class="text-end"><button class="btn btn-sm btn-outline-danger px-2 py-0" onclick="deleteLevy('${levy.id}')">삭제</button></div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        async function deleteLevy(id) {
+            if(confirm('해당 부과 내역을 삭제하시겠습니까?')) {
+                await deleteFromDB('Levy', id);
+                loadLevyList();
+            }
+        }
+
+        // 4. 수납 처리 로직
+        async function populateCollectionRoomSelect() {
+            const rooms = await getAllFromDB('Rooms');
+            rooms.sort((a, b) => a.room_no.localeCompare(b.room_no, undefined, {numeric: true}));
+            const select = document.getElementById('coll-room');
+            select.innerHTML = '<option value="">선택하세요</option>';
+            rooms.forEach(r => { const opt = document.createElement('option'); opt.value = r.room_no; opt.text = r.room_no; select.appendChild(opt); });
+        }
+
+        async function searchUnpaidLevies() {
+            const dateStr = document.getElementById('coll-date').value;
+            const roomNo = document.getElementById('coll-room').value;
+            if(!dateStr || !roomNo) return alert("수납일자와 호실을 선택해주세요.");
+
+            const bInfo = await getOneFromDB('Buildings', currentBuildingId);
+            const lateRate = bInfo ? (parseFloat(bInfo.late_fee_rate) || 0) : 0;
+
+            const allLevies = await getAllFromDB('Levy');
+            const unpaid = allLevies.filter(l => l.room_no === roomNo && l.status === 'unpaid');
+
+            const tbody = document.getElementById('coll-result-tbody');
+            tbody.innerHTML = '';
+            document.getElementById('coll-result-area').style.display = 'block';
+            if(unpaid.length === 0) { tbody.innerHTML = '<tr><td colspan="6" class="text-muted py-3">미납된 내역이 없습니다.</td></tr>'; return; }
+
+            const payDate = new Date(dateStr);
+            unpaid.forEach(levy => {
+                let penalty = 0;
+                if(levy.due_date && payDate > new Date(levy.due_date)) penalty = Math.floor((levy.amount * (lateRate / 100)) / 10) * 10;
+                const total = levy.amount + penalty;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><input type="checkbox" class="form-check-input coll-check" value="${levy.id}" data-amount="${levy.amount}" data-penalty="${penalty}"></td>
+                    <td>${levy.month}</td><td>${levy.due_date || '-'}</td><td>${levy.amount.toLocaleString()}</td>
+                    <td class="text-danger small">${penalty > 0 ? '+' + penalty.toLocaleString() : '-'}</td><td class="fw-bold text-primary">${total.toLocaleString()}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function processSelectedPayment() {
+            const checks = document.querySelectorAll('.coll-check:checked');
+            if(checks.length === 0) return alert("수납할 내역을 선택해주세요.");
+            const payDate = document.getElementById('coll-date').value;
+            let processCount = 0;
+
+            for(const chk of checks) {
+                const id = chk.value; const amount = parseInt(chk.dataset.amount); const penalty = parseInt(chk.dataset.penalty);
+                const total = amount + penalty;
+                const levy = await getOneFromDB('Levy', id);
+                if(levy) {
+                    levy.status = 'paid'; levy.paid_date = payDate; levy.paid_amount = total; levy.penalty = penalty;
+                    await saveToDB('Levy', levy);
+                    await saveToDB('Accounting', {
+                        id: 'acc_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+                        date: payDate, type: 'income', desc: `${levy.room_no} ${levy.month}월분 관리비${penalty > 0 ? '(연체포함)' : ''}`, amount: total
+                    });
+                    processCount++;
+                }
+            }
+            await logAdvancedHistory('수납', '관리비 수납 완료', `${processCount}건 처리 완료`);
+            alert(`${processCount}건 장부 반영 완료.`);
+            document.getElementById('coll-result-area').style.display = 'none';
+            document.getElementById('coll-room').value = '';
+            loadCollectionStatus();
+        }
+
+        async function loadCollectionStatus() {
+            const monthStr = document.getElementById('collection-month').value;
+            const allLevies = await getAllFromDB('Levy');
+            const currentLevies = allLevies.filter(l => l.month === monthStr);
+            currentLevies.sort((a, b) => a.room_no.localeCompare(b.room_no, undefined, {numeric: true}));
+
+            const container = document.getElementById('collection-list');
+            container.innerHTML = '';
+            if(currentLevies.length === 0) {
+                container.innerHTML = '<div class="text-center py-5 text-muted">해당 월의 부과 내역이 없습니다.</div>';
+                document.getElementById('collection-rate').innerText = '0%'; return;
+            }
+
+            let paidCount = 0;
+            currentLevies.forEach(levy => {
+                if(levy.status === 'paid') paidCount++;
+                const isPaid = levy.status === 'paid';
+                const item = document.createElement('div');
+                item.className = `list-group-item d-flex justify-content-between align-items-center py-2 px-2 ${isPaid ? 'bg-light text-muted' : ''}`;
+                item.innerHTML = `
+                    <div class="d-flex align-items-center">
+                        <div class="fw-bold me-2" style="width: 50px;">${levy.room_no}</div>
+                        <div>
+                            <div class="fw-bold">${levy.amount.toLocaleString()}원</div>
+                            <small class="text-muted" style="font-size:0.7rem">${isPaid ? '수납: ' + (levy.paid_date||'-') : '미납 (납기:' + (levy.due_date||'-') + ')'}</small>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm ${isPaid ? 'btn-secondary disabled' : 'btn-primary'}" ${isPaid ? 'disabled' : ''} onclick="document.getElementById('coll-room').value='${levy.room_no}'; searchUnpaidLevies(); window.scrollTo(0,0);">수납 처리</button>
+                `;
+                container.appendChild(item);
+            });
+            const rate = Math.round((paidCount / currentLevies.length) * 100);
+            document.getElementById('collection-rate').innerText = `${rate}% (${paidCount}/${currentLevies.length})`;
+        }
+
+        // 5. 검침 입력 로직
+        async function loadMeterTable() {
+            const month = document.getElementById('meter-month').value;
+            const type = document.getElementById('meter-type').value;
+            if(!month) return;
+            const rooms = await getAllFromDB('Rooms');
+            rooms.sort((a, b) => a.room_no.localeCompare(b.room_no, undefined, {numeric: true}));
+            const allReadings = await getAllFromDB('MeterReadings');
+            const currentReadings = allReadings.filter(r => r.month === month && r.type === type);
+            
+            const tbody = document.getElementById('meter-table-body');
+            tbody.innerHTML = '';
+            if(rooms.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="text-muted py-4">등록된 호실이 없습니다.</td></tr>'; return; }
+
+            rooms.forEach(room => {
+                const data = currentReadings.find(r => r.room_no === room.room_no) || {};
+                const prev = data.prev_reading !== undefined ? data.prev_reading : '';
+                const curr = data.curr_reading !== undefined ? data.curr_reading : '';
+                const usage = (prev !== '' && curr !== '') ? (parseFloat(curr) - parseFloat(prev)).toFixed(1) : 0;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="fw-bold">${room.room_no}</td>
+                    <td><input type="number" class="form-control form-control-sm meter-prev" data-room="${room.room_no}" value="${prev}" oninput="calcMeterUsage(this)"></td>
+                    <td><input type="number" class="form-control form-control-sm meter-curr" data-room="${room.room_no}" value="${curr}" oninput="calcMeterUsage(this)"></td>
+                    <td><span class="fw-bold text-primary meter-usage">${usage}</span><input type="hidden" class="meter-id" value="${data.id || ''}"></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function calcMeterUsage(input) {
+            const row = input.closest('tr');
+            const prevVal = row.querySelector('.meter-prev').value;
+            const currVal = row.querySelector('.meter-curr').value;
+            const usageSpan = row.querySelector('.meter-usage');
+            usageSpan.innerText = (prevVal !== '' && currVal !== '') ? (parseFloat(currVal) - parseFloat(prevVal)).toFixed(1) : '0';
+        }
+
+        async function importPreviousReadings() {
+            const month = document.getElementById('meter-month').value;
+            const type = document.getElementById('meter-type').value;
+            if (!month) return;
+            const dateObj = new Date(month + "-01"); dateObj.setMonth(dateObj.getMonth() - 1);
+            const prevMonth = dateObj.toISOString().slice(0, 7);
+            const prevData = (await getAllFromDB('MeterReadings')).filter(r => r.month === prevMonth && r.type === type);
+            
+            if(prevData.length === 0) return alert(`${prevMonth}월의 데이터가 없습니다.`);
+            let count = 0;
+            document.querySelectorAll('#meter-table-body tr').forEach(row => {
+                const roomNo = row.querySelector('.fw-bold').innerText;
+                const record = prevData.find(r => r.room_no === roomNo);
+                if(record && record.curr_reading !== undefined && record.curr_reading !== '') {
+                    row.querySelector('.meter-prev').value = record.curr_reading;
+                    calcMeterUsage(row.querySelector('.meter-prev'));
+                    count++;
+                }
+            });
+            alert(`${count}개 호실의 전월 지침을 불러왔습니다.`);
+        }
+
+        async function saveMeterReadings() {
+            const month = document.getElementById('meter-month').value;
+            const type = document.getElementById('meter-type').value;
+            if (!month) return alert("월을 선택해주세요.");
+            let count = 0;
+            for (const row of document.querySelectorAll('#meter-table-body tr')) {
+                const roomNo = row.querySelector('.fw-bold').innerText;
+                const prev = row.querySelector('.meter-prev').value;
+                const curr = row.querySelector('.meter-curr').value;
+                const idVal = row.querySelector('.meter-id').value;
+                if (prev === '' && curr === '') continue;
+
+                const data = { month, type, room_no: roomNo, prev_reading: prev, curr_reading: curr, usage: (prev !== '' && curr !== '') ? (parseFloat(curr) - parseFloat(prev)) : 0 };
+                data.id = idVal ? idVal : 'meter_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+                await saveToDB('MeterReadings', data);
+                count++;
+            }
+            await logAdvancedHistory('검침', `${month}월 ${document.querySelector('#meter-type option:checked').text} 저장`, `${count}건`);
+            alert('검침 데이터가 저장되었습니다.');
+            loadMeterTable();
+        }
+
+        // 6. 구글 시트 동기화 (뼈대)
+        async function syncWithGoogleSheets() {
+            const statusText = document.getElementById('sync-status-text');
+            statusText.innerText = "동기화 중...";
+            
+            try {
+                // 1. 로컬 DB에서 변경된(pending) 데이터 추출 (Push 대상)
+                const storeNames = ['Buildings', 'Rooms', 'ExpenseItems', 'Accounting', 'Levy', 'MeterReadings', 'History'];
+                const changes = {};
+                let hasChanges = false;
+
+                for (const storeName of storeNames) {
+                    const allData = await getAllFromDB(storeName, true); // 삭제 대기(pending_delete) 포함 로드
+                    const pendingData = allData.filter(item => item.sync_status && item.sync_status.startsWith('pending_'));
+                    if (pendingData.length > 0) {
+                        changes[storeName] = pendingData;
+                        hasChanges = true;
+                    }
+                }
+
+                // 2. 구글 시트로 Push 전송
+                const response = await fetch(GOOGLE_APP_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'sync', changes: changes })
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    // 3. 전송 성공 시 로컬 IndexedDB 데이터 상태를 'synced'로 업데이트
+                    for (const storeName in changes) {
+                        for (const record of changes[storeName]) {
+                            if (record.sync_status === 'pending_delete') {
+                                await deleteFromDB(storeName, record.id, true); // 구글 시트 삭제 확인 후 로컬에서 완전 삭제
+                            } else {
+                                record.sync_status = 'synced';
+                                await saveToDB(storeName, record);
+                            }
+                        }
+                    }
+                    
+                    // 4. Pull 로직: 구글 시트에서 내려온 최신 데이터로 로컬 DB 덮어쓰기
+                    if (result.data) {
+                        for (const storeName in result.data) {
+                            if (db.objectStoreNames.contains(storeName)) {
+                                await clearStore(storeName); // 기존 로컬 데이터 깔끔하게 비우기
+                                for (const record of result.data[storeName]) {
+                                    record.sync_status = 'synced'; // 내려받은 데이터는 동기화 완료 상태로 지정
+                                    await saveToDB(storeName, record);
+                                }
+                            }
+                        }
+                    }
+
+                    statusText.innerText = "동기화 완료";
+                } else {
+                    throw new Error(result.message || '서버 응답 오류');
+                }
+            } catch(e) {
+                console.error("Sync error:", e);
+                statusText.innerText = "동기화 실패";
+                alert('동기화 중 오류가 발생했습니다.');
+            }
+        }
+
+        // 6. 고도화된 히스토리 기록 (구글 시트용)
+        async function logAdvancedHistory(target, action, detail) {
+            const log = {
+                id: 'hist_' + Date.now() + '_' + Math.floor(Math.random() * 1000), // 고유 ID 발급
+                timestamp: new Date().toISOString(),
+                userId: currentUser ? currentUser.id : 'Unknown',
+                target: target,   // 예: '강남타워 101호'
+                action: action,   // 예: '임대인 정보 수정'
+                detail: detail,   // 예: '연락처 변경 010-xxxx -> 010-yyyy'
+                sync_status: 'pending_add' // 구글 시트에 아직 안 올라갔음을 표시
+            };
+            
+            await saveToDB('History', log);
+            console.log("History Logged:", log);
+        }
+    </script>
+</body>
+</html>
+
+
+
