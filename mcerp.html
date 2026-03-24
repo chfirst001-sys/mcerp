@@ -1837,8 +1837,14 @@
             ['transaction', 'regular', 'periodic', 'settlement', 'collection', 'levy'].forEach(t => {
                 const btn = document.getElementById(`tab-main-${t}`);
                 const content = document.getElementById(`tab-content-${t}`);
-                if(t === tabName) { btn.classList.add('active', 'text-dark'); btn.classList.remove('text-muted'); content.style.display = 'block'; } 
-                else { btn.classList.remove('active', 'text-dark'); btn.classList.add('text-muted'); content.style.display = 'none'; }
+                if(btn) {
+                    if(t === tabName) { btn.classList.add('active', 'text-dark'); btn.classList.remove('text-muted'); } 
+                    else { btn.classList.remove('active', 'text-dark'); btn.classList.add('text-muted'); }
+                }
+                if(content) {
+                    if(t === tabName) { content.style.display = 'block'; } 
+                    else { content.style.display = 'none'; }
+                }
             });
 
             if(tabName === 'regular') loadRegularExpenses();
@@ -2493,6 +2499,3 @@
     </script>
 </body>
 </html>
-
-
-
