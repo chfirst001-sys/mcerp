@@ -32,8 +32,6 @@ export const init = (container) => {
 
         <!-- 하위 메뉴별 컨텐츠 영역 -->
         <div class="module-card">
-            <h3 id="tabMainTitle" style="margin-top:0;">세대정보</h3>
-            <p id="tabMainDesc" style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;"></p>
             <div id="tenantContent"></div>
         </div>
 
@@ -385,16 +383,6 @@ export const init = (container) => {
 
     // --- 탭별 타이틀 및 렌더링 로직 ---
     const renderTabContent = (tabId) => {
-        const titleMap = {
-            household: { title: '세대정보', desc: '전체 세대의 기본 정보를 요약하여 보여줍니다.' },
-            owner: { title: '소유주정보', desc: '각 세대의 소유주 이름, 연락처 및 계약 정보를 관리합니다.' },
-            resident: { title: '거주자정보', desc: '실제 거주하고 있는 사람의 정보 및 임대차 계약 내용을 확인합니다.' },
-            vehicle: { title: '차량관리', desc: '세대별로 등록된 차량들의 번호와 상세 정보를 한눈에 봅니다.' },
-            items: { title: '입주물품', desc: '로비출입키, 리모컨 등 호실별 입주물품 지급 내역과 전체 재고를 관리합니다.' }
-        };
-        document.getElementById('tabMainTitle').textContent = titleMap[tabId].title;
-        document.getElementById('tabMainDesc').textContent = titleMap[tabId].desc;
-
         loadTenantData();
     };
 

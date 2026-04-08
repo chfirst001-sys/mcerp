@@ -3,11 +3,6 @@ import { db, escapeHtml } from "../js/main.js";
 
 export const init = (container) => {
     container.innerHTML = `
-        <div class="module-card">
-            <h2 style="display: flex; align-items: center; gap: 8px;"><span class="material-symbols-outlined">add_business</span> 건물 등록 마법사</h2>
-            <p>3단계에 걸쳐 새로운 건물과 기본 환경을 설정합니다.</p>
-        </div>
-
         <!-- 단계 표시기 -->
         <div class="step-indicator-container" style="display: flex; gap: 15px; margin-bottom: 20px; background: white; padding: 12px 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 13px; text-align: center; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;">
             <div id="step1-indicator" style="flex: 0 0 auto; font-weight: bold; color: #2980b9;">1.기본정보</div>

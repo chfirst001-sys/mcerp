@@ -4,11 +4,6 @@ import { db, auth, escapeHtml } from "../js/main.js";
 
 export const init = (container) => {
     container.innerHTML = `
-        <div class="module-card">
-            <h2 style="display: flex; align-items: center; gap: 8px;"><span class="material-symbols-outlined">manage_accounts</span> 회원관리</h2>
-            <p>시스템에 접근할 수 있는 관리자, 직원 및 입주자 계정을 관리합니다.</p>
-        </div>
-
         <!-- 권한별 보기 탭 -->
         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
             <button id="tabStaff" style="flex: 1; background-color: #2c3e50;">관리자 / 직원</button>

@@ -1,4 +1,4 @@
-import { collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { collection, getDocs, query, orderBy, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, escapeHtml } from "../js/main.js";
 
 export const init = (container) => {
@@ -23,11 +23,6 @@ export const init = (container) => {
 // [모드 1] 전체 건물 대시보드
 const renderAllBuildingsDashboard = (container) => {
     container.innerHTML = `
-        <div class="module-card">
-            <h3 style="display: flex; align-items: center; gap: 8px;"><span class="material-symbols-outlined">dashboard</span> 전체 건물 요약</h3>
-            <p>현재 등록된 모든 건물의 통합 대시보드입니다.</p>
-        </div>
-
         <h3>등록된 건물 현황</h3>
         <ul id="buildingList"></ul>
     `;
@@ -76,38 +71,77 @@ const renderAllBuildingsDashboard = (container) => {
 };
 
 // [모드 2] 선택된 단일 건물 대시보드
-const renderSingleBuildingDashboard = (container, buildingId, buildingName) => {
-    container.innerHTML = `
-        <div class="module-card">
-            <h3 style="display: flex; align-items: center; gap: 8px; color: #2980b9;">
-                <span class="material-symbols-outlined">domain</span> ${escapeHtml(buildingName)} 대시보드
-            </h3>
-            <p>해당 건물의 공실 현황, 이번 달 수납율, 접수된 민원 등을 한눈에 확인합니다.</p>
-            <button id="clearSelectionBtn" style="background-color: #7f8c8d; margin-top: 15px;">
-                <span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">arrow_back</span> 전체 건물로 돌아가기
-            </button>
-        </div>
-        
-        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-            <div class="module-card" style="flex: 1; text-align: center; margin-bottom: 0;">
-                <div style="font-size: 12px; color: #7f8c8d;">총 호실</div>
-                <div style="font-size: 24px; font-weight: bold;">0</div>
-            </div>
-            <div class="module-card" style="flex: 1; text-align: center; margin-bottom: 0;">
-                <div style="font-size: 12px; color: #7f8c8d;">공실</div>
-                <div style="font-size: 24px; font-weight: bold; color: #e74c3c;">0</div>
-            </div>
-            <div class="module-card" style="flex: 1; text-align: center; margin-bottom: 0;">
-                <div style="font-size: 12px; color: #7f8c8d;">미납</div>
-                <div style="font-size: 24px; font-weight: bold; color: #f39c12;">0</div>
-            </div>
-        </div>
-    `;
+const renderSingleBuildingDashboard = async (container, buildingId, buildingName) => {
+    container.innerHTML = '<div style="text-align: center; padding: 20px; color: #7f8c8d;">대시보드 데이터를 불러오는 중...</div>';
 
-    // '전체 건물로 돌아가기' 버튼 이벤트
-    document.getElementById('clearSelectionBtn').addEventListener('click', () => {
-        localStorage.removeItem('selectedBuildingId');
-        localStorage.removeItem('selectedBuildingName');
-        init(container); // 대시보드 모듈 리렌더링
-    });
+    try {
+        const docSnap = await getDoc(doc(db, "buildings", buildingId));
+        if (!docSnap.exists()) {
+            container.innerHTML = '<div style="color:red; text-align: center;">건물 정보를 찾을 수 없습니다.</div>';
+            return;
+        }
+        
+        const bData = docSnap.data();
+        const roomsList = bData.roomsList || [];
+        const totalRooms = roomsList.length;
+        
+        // 공실 계산 로직
+        let vacantCount = 0;
+        const households = bData.households || {};
+        roomsList.forEach(room => {
+            if (households[room] && households[room].residentType === '공실') {
+                vacantCount++;
+            }
+        });
+        
+        // 최근 달 미납 데이터 계산 로직
+        let unpaidCount = 0;
+        let unpaidAmount = 0;
+        const billingHistory = bData.billingHistory || {};
+        const collections = bData.collections || {};
+        const months = Object.keys(billingHistory).sort().reverse();
+        
+        if (months.length > 0) {
+            const latestMonth = months[0];
+            const currentBill = billingHistory[latestMonth];
+            const currentCollection = collections[latestMonth] || {};
+            
+            let baseAmount = 0;
+            if (bData.billingConfig?.splitMethod === 'N분의일부과' && totalRooms > 0) {
+                baseAmount = Math.ceil((currentBill.totalSum / totalRooms) / 10) * 10;
+            }
+            
+            roomsList.forEach(room => {
+                const billed = baseAmount;
+                const colData = currentCollection[room] || { amount: 0 };
+                const collected = Number(colData.amount) || 0;
+                const unpaid = billed - collected;
+                if (unpaid > 0) {
+                    unpaidCount++;
+                    unpaidAmount += unpaid;
+                }
+            });
+        }
+        
+        container.innerHTML = `
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <div class="module-card" style="flex: 1; text-align: center; margin-bottom: 0;">
+                    <div style="font-size: 12px; color: #7f8c8d;">총 호실</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #2c3e50;">${totalRooms}</div>
+                </div>
+                <div class="module-card" style="flex: 1; text-align: center; margin-bottom: 0;">
+                    <div style="font-size: 12px; color: #7f8c8d;">공실</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #e74c3c;">${vacantCount}</div>
+                </div>
+                <div class="module-card" style="flex: 1; text-align: center; margin-bottom: 0;">
+                    <div style="font-size: 12px; color: #7f8c8d;">미납 (최근 월)</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #f39c12;">${unpaidCount}</div>
+                    <div style="font-size: 12px; color: #e74c3c; margin-top: 5px;">${unpaidAmount.toLocaleString()}원</div>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error("대시보드 로드 실패:", error);
+        container.innerHTML = '<div style="color:red; text-align: center;">오류가 발생했습니다.</div>';
+    }
 };

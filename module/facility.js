@@ -472,8 +472,6 @@ export const init = (container) => {
             case 'partner': 
                 html = `
                     <div class="module-card">
-                        <h3 style="margin-top:0;">협력업체</h3>
-                        <p style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;">회계관리에서 등록된 협력업체 목록입니다.</p>
                         <div id="partnerContent">
                             <div style="text-align: center; padding: 20px; color: #7f8c8d;">데이터를 불러오는 중...</div>
                         </div>
@@ -493,8 +491,6 @@ export const init = (container) => {
             case 'equipment': 
                 html = `
                     <div class="module-card">
-                        <h3 style="margin-top:0;">설비시설</h3>
-                        <p style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;">건물에 부착되어 있는 대형 혹은 고정 기계들을 그룹(폴더) 및 개별 설비(파일) 형태로 관리합니다.<br>항목을 3초간 길게 누르면 이동할 수 있습니다.</p>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                             <div style="font-size: 13px; color: #2980b9; font-weight: bold; flex: 1;">
                                 <span id="equipmentSelectedPath">현재 위치: 최상위</span>
@@ -523,8 +519,6 @@ export const init = (container) => {
             case 'fixture': 
                 html = `
                     <div class="module-card">
-                        <h3 style="margin-top:0;">기구/비품</h3>
-                        <p style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;">이동가능한 건물 소유의 기계 혹은 물품들을 그룹(폴더) 및 개별 기구/비품(파일) 형태로 관리합니다.<br>항목을 3초간 길게 누르면 이동할 수 있습니다.</p>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                             <div style="font-size: 13px; color: #2980b9; font-weight: bold; flex: 1;">
                                 <span id="fixtureSelectedPath">현재 위치: 최상위</span>
@@ -550,7 +544,7 @@ export const init = (container) => {
                     </div>
                 `;
                 break;
-            case 'zone': html = '<div class="module-card"><h3>건물구역</h3><p>건물 내 다양한 구역(층, 공용부 등)을 관리합니다.</p></div>'; break;
+            case 'zone': html = '<div class="module-card"><div style="text-align: center; padding: 20px; color: #7f8c8d;">기능 준비 중입니다.</div></div>'; break;
         }
         facilityContent.innerHTML = html;
 

@@ -3,11 +3,6 @@ import { db, escapeHtml } from "../js/main.js";
 
 export const init = (container) => {
     container.innerHTML = `
-        <div class="module-card">
-            <h2 style="display: flex; align-items: center; gap: 8px;"><span class="material-symbols-outlined">domain</span> 건물선택</h2>
-            <p>관리할 건물을 선택하거나 변경하는 화면입니다.</p>
-        </div>
-
         <div id="buildingSelectionList" style="display: flex; flex-direction: column; gap: 15px;">
             <div style="text-align: center; padding: 20px;">건물 목록을 불러오는 중...</div>
         </div>
