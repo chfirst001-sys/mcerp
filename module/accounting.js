@@ -12,6 +12,11 @@ let currentBankAccounts = []; // 불러온 통장 목록 보관용
 let selectedAccountId = null; // 현재 선택된 통장 ID
 let isAccountInfoExpanded = false; // 통장 정보 펼침 상태
 
+let currentMeterMonth = ''; // 검침 화면에서 선택된 월
+let currentMeterTab = 'electric'; // 검침 서브 탭 ('electric', 'water', 'gas')
+let metersData = {}; // 서버에서 불러온 검침 데이터
+let sortedRoomsForMeter = []; // 호실 목록
+
 export const init = (container) => {
     // 건물이 변경되었는지 확인하여 서브 탭 인덱스 리셋
     const currentBuildingId = localStorage.getItem('selectedBuildingId');
@@ -751,6 +756,396 @@ export const init = (container) => {
         }
     };
 
+    // --- 검침(Meter) 데이터 및 화면 렌더링 관리 ---
+    const getPrevMonthStr = (monthStr, offset = 1) => {
+        let [y, m] = monthStr.split('-').map(Number);
+        m -= offset;
+        while (m <= 0) {
+            m += 12;
+            y -= 1;
+        }
+        return `${y}-${String(m).padStart(2, '0')}`;
+    };
+
+    const renderMeterView = () => {
+        const bId = localStorage.getItem('selectedBuildingId');
+        const meterContent = document.getElementById('meterContent');
+        if (!meterContent) return;
+
+        if (sortedRoomsForMeter.length === 0) {
+            meterContent.innerHTML = '<div style="color:#7f8c8d; padding:20px; text-align:center; background:#f8f9fa; border-radius:8px;">등록된 호실이 없습니다.<br>사이드바의 [건물등록] 메뉴에서 건물의 호실을 먼저 세팅해주세요.</div>';
+            return;
+        }
+
+        // 현재 달 데이터 객체 초기화 (없을 경우 생성)
+        if (!metersData[currentMeterMonth]) {
+            metersData[currentMeterMonth] = { status: 'open', electric: {}, water: {}, gas: {} };
+        }
+        
+        const currentData = metersData[currentMeterMonth];
+        if (!currentData[currentMeterTab]) currentData[currentMeterTab] = {};
+        
+        const isFinalized = currentData.status === 'finalized';
+
+        const prev1M = getPrevMonthStr(currentMeterMonth, 1);
+        const prev2M = getPrevMonthStr(currentMeterMonth, 2);
+        const prev3M = getPrevMonthStr(currentMeterMonth, 3);
+
+        const getMeterVal = (month, type, room) => {
+            if (metersData[month] && metersData[month][type] && metersData[month][type][room]) {
+                return metersData[month][type][room];
+            }
+            return null;
+        };
+
+        // 틀고정(Sticky) CSS 속성 정의
+        const thBase = 'padding: 10px; border-bottom: 1px solid #bdc3c7; border-right: 1px solid #34495e; position: sticky; top: 0; z-index: 2; background-color: #2c3e50; color: white;';
+        const thLast = 'padding: 10px; border-bottom: 1px solid #bdc3c7; position: sticky; top: 0; z-index: 2; background-color: #2c3e50; color: white;';
+        const thCol1 = 'padding: 10px; border-bottom: 1px solid #bdc3c7; border-right: 1px solid #34495e; position: sticky; top: 0; left: 0; z-index: 3; background-color: #1a252f; color: white; width: 50px; min-width: 50px; box-sizing: border-box;';
+        const thCol2 = 'padding: 10px; border-bottom: 1px solid #bdc3c7; border-right: 2px solid #95a5a6; position: sticky; top: 0; left: 50px; z-index: 3; background-color: #1a252f; color: white; width: 80px; min-width: 80px; box-sizing: border-box; box-shadow: 2px 0 5px rgba(0,0,0,0.1);';
+        
+        const tdBase = 'padding: 10px; border-bottom: 1px solid #eee; border-right: 1px solid #eee;';
+        const tdLast = 'padding: 10px; border-bottom: 1px solid #eee;';
+        const tdCol1 = 'padding: 10px; border-bottom: 1px solid #eee; border-right: 1px solid #eee; position: sticky; left: 0; z-index: 1; background-color: inherit; width: 50px; min-width: 50px; box-sizing: border-box; text-align: center;';
+        const tdCol2 = 'padding: 10px; border-bottom: 1px solid #eee; border-right: 2px solid #bdc3c7; position: sticky; left: 50px; z-index: 1; background-color: inherit; font-weight: bold; color: #2980b9; width: 80px; min-width: 80px; box-sizing: border-box; box-shadow: 2px 0 5px rgba(0,0,0,0.05); text-align: center;';
+
+        let rowsHtml = '';
+        sortedRoomsForMeter.forEach((room, idx) => {
+            const prev1Data = getMeterVal(prev1M, currentMeterTab, room) || {};
+            const prev2Data = getMeterVal(prev2M, currentMeterTab, room) || {};
+            const prev3Data = getMeterVal(prev3M, currentMeterTab, room) || {};
+
+            const usage1 = Number(prev1Data.usage) || 0;
+            const usage2 = Number(prev2Data.usage) || 0;
+            const usage3 = Number(prev3Data.usage) || 0;
+
+            // 당월 데이터 세팅 (입력된 적이 없으면 이전 달 current 지침을 prev로 자동 세팅)
+            let roomData = currentData[currentMeterTab][room];
+            if (!roomData) {
+                roomData = { prev: prev1Data.current !== undefined ? prev1Data.current : '', current: '', usage: '', note: '' };
+                currentData[currentMeterTab][room] = roomData;
+            }
+
+            const rPrev = roomData.prev;
+            const rCurr = roomData.current;
+            const rUsage = roomData.usage;
+            const rNote = roomData.note || '';
+
+            // 전달 대비 증감량 계산
+            const increase = rUsage !== '' && prev1Data.usage !== undefined ? (Number(rUsage) - usage1) : '';
+            const increaseStr = increase !== '' ? (increase > 0 ? `+${increase}` : increase) : '-';
+            const increaseColor = increase !== '' ? (increase > 0 ? '#e74c3c' : (increase < 0 ? '#27ae60' : '#7f8c8d')) : '#7f8c8d';
+
+            // 3개월 평균 계산 (데이터가 존재하는 월수만큼 나누기)
+            let sum = 0; let count = 0;
+            if (prev1Data.usage !== undefined) { sum += usage1; count++; }
+            if (prev2Data.usage !== undefined) { sum += usage2; count++; }
+            if (prev3Data.usage !== undefined) { sum += usage3; count++; }
+            
+            let avgStr = '-';
+            if (rUsage !== '') { sum += Number(rUsage); count++; }
+            if (count > 0) { avgStr = (sum / count).toFixed(1); }
+
+            rowsHtml += `
+                <tr class="meter-row" data-room="${escapeHtml(room)}" style="background-color: #fff; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f4f6f8'" onmouseout="this.style.backgroundColor='#fff'">
+                    <td style="${tdCol1}">${idx + 1}</td>
+                    <td style="${tdCol2}">${escapeHtml(room)}</td>
+                    <td style="${tdBase} text-align:right;">
+                        ${isFinalized ? 
+                            escapeHtml(rPrev) : 
+                            `<input type="number" class="m-prev" value="${escapeHtml(rPrev)}" style="width:70px; margin:0; padding:6px; font-size:12px; border:1px solid #ccc; border-radius:4px; text-align:right; box-sizing:border-box;">`
+                        }
+                    </td>
+                    <td style="${tdBase} text-align:right; background:#e8f4f8;">
+                        ${isFinalized ? 
+                            escapeHtml(rCurr) : 
+                            `<input type="number" class="m-curr" value="${escapeHtml(rCurr)}" style="width:70px; margin:0; padding:6px; font-size:12px; border:1px solid #3498db; border-radius:4px; text-align:right; box-sizing:border-box; font-weight:bold; color:#2980b9;">`
+                        }
+                    </td>
+                    <td style="${tdBase} text-align:right; font-weight:bold; color:#2c3e50;" class="m-usage-disp">${rUsage !== '' ? escapeHtml(rUsage) : '-'}</td>
+                    <td style="${tdBase} text-align:right; color:${increaseColor}; font-weight:bold;" class="m-inc-disp">${increaseStr}</td>
+                    <td style="${tdBase} text-align:right; color:#7f8c8d;" class="m-avg-disp">${avgStr}</td>
+                    <td style="${tdLast} text-align:left;">
+                        ${isFinalized ? 
+                            escapeHtml(rNote) : 
+                            `<input type="text" class="m-note" value="${escapeHtml(rNote)}" placeholder="메모" style="width:100%; min-width: 80px; margin:0; padding:6px; font-size:12px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">`
+                        }
+                    </td>
+                </tr>
+            `;
+        });
+
+        const getMeterTabStyle = (type) => `
+            background:none; border:none; padding:8px 16px; 
+            color:${currentMeterTab === type ? '#2980b9' : '#bdc3c7'}; 
+            font-weight:${currentMeterTab === type ? 'bold' : 'normal'}; 
+            border-bottom:${currentMeterTab === type ? '3px solid #2980b9' : '3px solid transparent'}; 
+            cursor:pointer; font-size:15px; flex:1; transition: 0.2s;
+        `;
+
+        const meterTabIcons = { 'electric': '⚡ 전기', 'water': '💧 수도', 'gas': '🔥 가스' };
+
+        meterContent.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; background:#f8f9fa; padding:10px 15px; border-radius:8px; border:1px solid #e0e0e0;">
+                <button id="prevMeterMonthBtn" style="background:none; border:none; color:#2c3e50; cursor:pointer; padding:5px; border-radius: 50%;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="vertical-align:middle;">chevron_left</span></button>
+                <div style="font-size:16px; font-weight:bold; color:#2c3e50; display:flex; align-items:center; gap:8px;">
+                    ${currentMeterMonth} 검침 기록 
+                    ${isFinalized ? '<span style="font-size:12px; background:#27ae60; color:white; padding:2px 8px; border-radius:12px;">확정됨</span>' : '<span style="font-size:12px; background:#f39c12; color:white; padding:2px 8px; border-radius:12px;">입력중</span>'}
+                </div>
+                <button id="nextMeterMonthBtn" style="background:none; border:none; color:#2c3e50; cursor:pointer; padding:5px; border-radius: 50%;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="vertical-align:middle;">chevron_right</span></button>
+            </div>
+
+            <div style="display:flex; border-bottom:1px solid #e0e0e0; margin-bottom:15px; text-align: center;">
+                <button class="meter-tab-btn" data-type="electric" style="${getMeterTabStyle('electric')}">${meterTabIcons['electric']}</button>
+                <button class="meter-tab-btn" data-type="water" style="${getMeterTabStyle('water')}">${meterTabIcons['water']}</button>
+                <button class="meter-tab-btn" data-type="gas" style="${getMeterTabStyle('gas')}">${meterTabIcons['gas']}</button>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div style="display:flex; gap:8px;">
+                    ${isFinalized ? '' : `
+                        <button id="downloadCsvBtn" style="background:#8e44ad; color:white; border:none; padding:8px 12px; border-radius:4px; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="현재 표의 내용을 CSV 파일로 다운로드합니다."><span class="material-symbols-outlined" style="font-size:16px;">download</span> 엑셀 양식 다운로드</button>
+                        <button id="uploadCsvBtn" style="background:#d35400; color:white; border:none; padding:8px 12px; border-radius:4px; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="다운받은 양식에 값을 입력한 후 업로드하면 일괄 적용됩니다."><span class="material-symbols-outlined" style="font-size:16px;">upload</span> 엑셀(CSV) 업로드</button>
+                        <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+                    `}
+                </div>
+                <div style="text-align:right;">
+                    ${isFinalized ? 
+                        `<button id="unfinalizeMeterBtn" style="background:#e74c3c; color:white; border:none; padding:8px 12px; border-radius:4px; font-size:13px; cursor:pointer; font-weight:bold; display:inline-flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:16px;">edit</span> 수정 모드로 전환</button>` : 
+                        `<div style="display:flex; justify-content:flex-end; gap:8px;">
+                            <button id="saveMeterBtn" style="background:#95a5a6; color:white; border:none; padding:8px 16px; border-radius:4px; font-size:13px; cursor:pointer; font-weight:bold;">임시 저장</button>
+                            <button id="finalizeMeterBtn" style="background:#27ae60; color:white; border:none; padding:8px 16px; border-radius:4px; font-size:13px; cursor:pointer; font-weight:bold; display:inline-flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:16px;">task_alt</span> 당월 확정</button>
+                         </div>`
+                    }
+                </div>
+            </div>
+
+            <div style="overflow: auto; max-height: 500px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); position: relative;">
+                <table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; white-space: nowrap;">
+                    <thead>
+                        <tr>
+                            <th style="${thCol1}">No</th>
+                            <th style="${thCol2}">호수</th>
+                            <th style="${thBase}">이전달 지침</th>
+                            <th style="${thBase}">당월 지침</th>
+                            <th style="${thBase}">사용량</th>
+                            <th style="${thBase}">전월 증감</th>
+                            <th style="${thBase}">3개월 평균</th>
+                            <th style="${thLast}">비고</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>
+        `;
+
+        // 월/탭 이동 이벤트 연결
+        document.getElementById('prevMeterMonthBtn').addEventListener('click', () => { currentMeterMonth = getPrevMonthStr(currentMeterMonth, 1); renderMeterView(); });
+        document.getElementById('nextMeterMonthBtn').addEventListener('click', () => { currentMeterMonth = getPrevMonthStr(currentMeterMonth, -1); renderMeterView(); });
+        meterContent.querySelectorAll('.meter-tab-btn').forEach(btn => { btn.addEventListener('click', (e) => { currentMeterTab = e.currentTarget.dataset.type; renderMeterView(); }); });
+
+        // 입력 중 실시간 자동 계산 로직 (입력값이 바뀔 때마다 실행)
+        if (!isFinalized) {
+            meterContent.querySelectorAll('.meter-row').forEach(row => {
+                const prevInput = row.querySelector('.m-prev');
+                const currInput = row.querySelector('.m-curr');
+                const usageDisp = row.querySelector('.m-usage-disp');
+                const incDisp = row.querySelector('.m-inc-disp');
+                const avgDisp = row.querySelector('.m-avg-disp');
+                const roomName = row.dataset.room;
+
+                const prev1Data = getMeterVal(prev1M, currentMeterTab, roomName) || {};
+                const prev2Data = getMeterVal(prev2M, currentMeterTab, roomName) || {};
+                const prev3Data = getMeterVal(prev3M, currentMeterTab, roomName) || {};
+
+                const usage1 = Number(prev1Data.usage) || 0;
+                const usage2 = Number(prev2Data.usage) || 0;
+                const usage3 = Number(prev3Data.usage) || 0;
+
+                const recalc = () => {
+                    const pVal = prevInput.value;
+                    const cVal = currInput.value;
+                    if (pVal !== '' && cVal !== '') {
+                        const usage = Number(cVal) - Number(pVal);
+                        usageDisp.textContent = usage;
+                        
+                        const increase = prev1Data.usage !== undefined ? usage - usage1 : '';
+                        incDisp.textContent = increase !== '' ? (increase > 0 ? `+${increase}` : increase) : '-';
+                        incDisp.style.color = increase !== '' ? (increase > 0 ? '#e74c3c' : (increase < 0 ? '#27ae60' : '#7f8c8d')) : '#7f8c8d';
+
+                        let sum = 0; let count = 0;
+                        if (prev1Data.usage !== undefined) { sum += usage1; count++; }
+                        if (prev2Data.usage !== undefined) { sum += usage2; count++; }
+                        if (prev3Data.usage !== undefined) { sum += usage3; count++; }
+                        
+                        sum += usage; count++;
+                        avgDisp.textContent = (sum / count).toFixed(1);
+                    } else {
+                        usageDisp.textContent = '-';
+                        incDisp.textContent = '-'; incDisp.style.color = '#7f8c8d';
+                        
+                        let sum = 0; let count = 0;
+                        if (prev1Data.usage !== undefined) { sum += usage1; count++; }
+                        if (prev2Data.usage !== undefined) { sum += usage2; count++; }
+                        if (prev3Data.usage !== undefined) { sum += usage3; count++; }
+                        avgDisp.textContent = count > 0 ? (sum / count).toFixed(1) : '-';
+                    }
+                };
+
+                prevInput.addEventListener('input', recalc);
+                currInput.addEventListener('input', recalc);
+            });
+            
+            // --- CSV 엑셀 다운로드 및 업로드 로직 ---
+            document.getElementById('downloadCsvBtn')?.addEventListener('click', () => {
+                // 엑셀에서 한글이 깨지지 않도록 \uFEFF (BOM) 추가
+                let csvContent = '\uFEFF호수,이전지침,당월지침,비고\n';
+                meterContent.querySelectorAll('.meter-row').forEach(row => {
+                    const room = row.dataset.room;
+                    const prev = row.querySelector('.m-prev').value;
+                    const curr = row.querySelector('.m-curr').value;
+                    const note = row.querySelector('.m-note').value.replace(/,/g, ' '); // 쉼표가 있으면 열이 분리되므로 공백으로 치환
+                    csvContent += `${room},${prev},${curr},${note}\n`;
+                });
+                
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `검침양식_${currentMeterMonth}_${currentMeterTab}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+
+            const uploadCsvBtn = document.getElementById('uploadCsvBtn');
+            const csvFileInput = document.getElementById('csvFileInput');
+            if (uploadCsvBtn && csvFileInput) {
+                uploadCsvBtn.addEventListener('click', () => csvFileInput.click());
+                csvFileInput.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const text = event.target.result;
+                        const lines = text.split('\n');
+                        let successCount = 0;
+                        
+                        // 첫 줄(헤더) 제외하고 데이터 파싱
+                        for (let i = 1; i < lines.length; i++) {
+                            if (!lines[i].trim()) continue;
+                            // CSV 데이터 파싱
+                            const cols = lines[i].split(',');
+                            if (cols.length >= 3) {
+                                const room = cols[0].trim();
+                                const prev = cols[1].trim();
+                                const curr = cols[2].trim();
+                                const note = cols[3] ? cols[3].trim() : '';
+
+                                // 현재 화면의 호실과 일치하는 행을 찾아 값 덮어쓰기
+                                const row = meterContent.querySelector(`.meter-row[data-room="${room}"]`);
+                                if (row) {
+                                    const prevInput = row.querySelector('.m-prev');
+                                    const currInput = row.querySelector('.m-curr');
+                                    const noteInput = row.querySelector('.m-note');
+                                    
+                                    // input 이벤트를 강제로 발생시켜 '사용량', '평균' 등이 실시간 재계산되도록 함
+                                    if (prevInput) { prevInput.value = prev; prevInput.dispatchEvent(new Event('input')); }
+                                    if (currInput) { currInput.value = curr; currInput.dispatchEvent(new Event('input')); }
+                                    if (noteInput) { noteInput.value = note; }
+                                    successCount++;
+                                }
+                            }
+                        }
+                        alert(`${successCount}개 호실의 데이터가 업로드되었습니다.`);
+                        csvFileInput.value = ''; // 동일 파일 재선택을 위해 값 초기화
+                    };
+                    reader.readAsText(file, 'utf-8');
+                });
+            }
+        }
+
+        // 화면에 입력된 데이터들을 메모리 변수로 수집
+        const collectData = () => {
+            if (isFinalized) return;
+            meterContent.querySelectorAll('.meter-row').forEach(row => {
+                const room = row.dataset.room;
+                const prev = row.querySelector('.m-prev').value;
+                const curr = row.querySelector('.m-curr').value;
+                const note = row.querySelector('.m-note').value;
+                let usage = '';
+                if (prev !== '' && curr !== '') { usage = Number(curr) - Number(prev); }
+                currentData[currentMeterTab][room] = { prev, current: curr, usage, note };
+            });
+        };
+
+        // DB 저장 함수
+        const saveToDB = async (statusMsg) => {
+            const btns = [document.getElementById('saveMeterBtn'), document.getElementById('unfinalizeMeterBtn'), document.getElementById('finalizeMeterBtn')];
+            btns.forEach(b => { if(b) b.disabled = true; });
+            try {
+                await updateDoc(doc(db, "buildings", bId), { meters: metersData });
+                if (statusMsg) alert(statusMsg);
+                renderMeterView();
+            } catch (err) {
+                console.error(err);
+                alert("저장 중 오류가 발생했습니다.");
+                btns.forEach(b => { if(b) b.disabled = false; });
+            }
+        };
+
+        document.getElementById('saveMeterBtn')?.addEventListener('click', () => {
+            collectData(); saveToDB("임시 저장되었습니다.");
+        });
+
+        document.getElementById('finalizeMeterBtn')?.addEventListener('click', () => {
+            if (confirm(`${currentMeterMonth}월 검침 데이터를 확정하시겠습니까?\n(확정 후에는 입력창이 닫힙니다.)`)) {
+                collectData();
+                currentData.status = 'finalized';
+                saveToDB(`${currentMeterMonth}월 검침 데이터가 확정되었습니다!`);
+            }
+        });
+
+        document.getElementById('unfinalizeMeterBtn')?.addEventListener('click', () => {
+            if (confirm('확정을 해제하고 수정 모드로 전환하시겠습니까?')) {
+                currentData.status = 'open';
+                saveToDB(); 
+            }
+        });
+    };
+
+    // 검침 화면 초기 데이터 로드 함수
+    const loadMeterManagement = async () => {
+        const bId = localStorage.getItem('selectedBuildingId');
+        const meterContent = document.getElementById('meterContent');
+        
+        if (!bId) {
+            meterContent.innerHTML = '<div style="color:#e74c3c; padding: 20px; text-align: center; font-weight: bold;">선택된 건물이 없습니다.<br><span style="font-size:13px; font-weight:normal; color:#7f8c8d;">사이드바의 "건물선택" 메뉴에서 건물을 먼저 선택해주세요.</span></div>';
+            return;
+        }
+
+        try {
+            const docSnap = await getDoc(doc(db, "buildings", bId));
+            if (!docSnap.exists()) return;
+            
+            const bData = docSnap.data();
+            metersData = bData.meters || {};
+            const roomsList = bData.roomsList || [];
+            sortedRoomsForMeter = [...roomsList].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+            if (!currentMeterMonth) {
+                const now = new Date();
+                currentMeterMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            }
+
+            renderMeterView();
+        } catch (err) {
+            console.error(err);
+            meterContent.innerHTML = '<div style="color:red; padding: 20px; text-align: center;">데이터를 불러오는 중 오류가 발생했습니다.</div>';
+        }
+    };
+
     // 세대부과(bill) 탭 데이터를 관리하고 렌더링하는 함수
     const loadBillManagement = async () => {
         const bId = localStorage.getItem('selectedBuildingId');
@@ -1098,7 +1493,17 @@ export const init = (container) => {
                     </div>
                 `;
                 break;
-            case 'meter': html = '<div class="module-card"><h3>검침</h3><p>전기, 수도, 가스 등 각 세대의 검침 데이터를 입력합니다.</p></div>'; break;
+            case 'meter': 
+                html = `
+                    <div class="module-card">
+                        <h3 style="margin-top:0;">검침</h3>
+                        <p style="font-size: 12px; color: #7f8c8d; margin-bottom: 15px;">전기, 수도, 가스 등 각 세대의 검침 데이터를 월별로 입력하고 조회합니다.</p>
+                        <div id="meterContent">
+                            <div style="text-align: center; padding: 20px; color: #7f8c8d;">데이터를 불러오는 중...</div>
+                        </div>
+                    </div>
+                `; 
+                break;
             case 'collect': html = '<div class="module-card"><h3>수납</h3><p>세대별 관리비 수납 내역을 처리하고 확인합니다.</p></div>'; break;
             case 'settle': html = '<div class="module-card"><h3>결산</h3><p>월별/연별 회계 결산 작업을 수행합니다.</p></div>'; break;
             case 'resol': html = '<div class="module-card"><h3>지출결의</h3><p>건물 관리에 필요한 지출 결의서를 작성하고 승인합니다.</p></div>'; break;
@@ -1221,6 +1626,10 @@ export const init = (container) => {
                     renderSelectedAccount();
                 }
             });
+        }
+
+        if (tabId === 'meter') {
+            loadMeterManagement();
         }
     };
 
