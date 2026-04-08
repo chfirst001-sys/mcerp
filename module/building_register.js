@@ -9,14 +9,14 @@ export const init = (container) => {
         </div>
 
         <!-- 단계 표시기 -->
-        <div style="display: flex; justify-content: space-between; margin-bottom: 20px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 11px; text-align: center; gap: 2px;">
-            <div id="step1-indicator" style="flex: 1; font-weight: bold; color: #2980b9;">1.기본정보</div>
-            <div id="step2-indicator" style="flex: 1; color: #95a5a6;">2.층수</div>
-            <div id="step3-indicator" style="flex: 1; color: #95a5a6;">3.호실수</div>
-            <div id="step4-indicator" style="flex: 1; color: #95a5a6;">4.호실편집</div>
-            <div id="step5-indicator" style="flex: 1; color: #95a5a6;">5.고정지출</div>
-            <div id="step6-indicator" style="flex: 1; color: #95a5a6;">6.변동지출</div>
-            <div id="step7-indicator" style="flex: 1; color: #95a5a6;">7.주기납부</div>
+        <div class="step-indicator-container" style="display: flex; gap: 15px; margin-bottom: 20px; background: white; padding: 12px 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 13px; text-align: center; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;">
+            <div id="step1-indicator" style="flex: 0 0 auto; font-weight: bold; color: #2980b9;">1.기본정보</div>
+            <div id="step2-indicator" style="flex: 0 0 auto; color: #95a5a6;">2.층수</div>
+            <div id="step3-indicator" style="flex: 0 0 auto; color: #95a5a6;">3.호실수</div>
+            <div id="step4-indicator" style="flex: 0 0 auto; color: #95a5a6;">4.호실편집</div>
+            <div id="step5-indicator" style="flex: 0 0 auto; color: #95a5a6;">5.고정지출</div>
+            <div id="step6-indicator" style="flex: 0 0 auto; color: #95a5a6;">6.변동지출</div>
+            <div id="step7-indicator" style="flex: 0 0 auto; color: #95a5a6;">7.주기납부</div>
         </div>
 
         <form id="buildingRegisterForm" class="module-card">

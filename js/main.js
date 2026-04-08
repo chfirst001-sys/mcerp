@@ -3,6 +3,9 @@ import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebase
 import { getFirestore } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
+// 앱 버전 (코드를 업데이트할 때마다 이 값을 변경하면 브라우저가 최신 파일을 불러옵니다)
+const APP_VERSION = "20240408";
+
 // Firebase 콘솔에서 발급받은 설정값
 const firebaseConfig = {
   apiKey: "AIzaSyBpjHY6c83Aqy8GzDXLMUEXejLGlZf8RX8",
@@ -49,7 +52,7 @@ const loadModule = async (moduleName) => {
     if (currentLoadedModule === moduleName) {
         // 이미 활성화된 하단 탭을 다시 클릭한 경우 (화면 초기화 없이 onReclick 기능 실행)
         try {
-            const module = await import(`../module/${moduleName}.js`);
+            const module = await import(`../module/${moduleName}.js?v=${APP_VERSION}`);
             if (module.onReclick) module.onReclick();
         } catch(e) {}
         return; 
@@ -67,7 +70,7 @@ const loadModule = async (moduleName) => {
 
     // 3. module 폴더에서 해당 자바스크립트 파일을 동적으로 가져와서 실행
     try {
-        const module = await import(`../module/${moduleName}.js`);
+        const module = await import(`../module/${moduleName}.js?v=${APP_VERSION}`);
         appContent.innerHTML = ''; // 로딩 텍스트 지우기
         if (module.init) module.init(appContent); // 모듈 내부의 init 함수 실행
     } catch (error) {

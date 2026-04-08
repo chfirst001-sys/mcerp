@@ -142,3 +142,6 @@ button:hover { background: #1c5980; }
     color: white;
     border-color: #2c3e50;
 }
+
+/* 건물 등록 단계 표시기 스크롤바 숨김 */
+.step-indicator-container::-webkit-scrollbar { display: none; }
