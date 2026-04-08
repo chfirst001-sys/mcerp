@@ -181,6 +181,7 @@ if ('serviceWorker' in navigator) {
 // === PWA 설치(홈 화면에 추가) 프롬프트 제어 ===
 let deferredPrompt;
 const installAppBtn = document.getElementById('installAppBtn');
+const sidebarInstallBtn = document.getElementById('sidebarInstallBtn');
 
 // 브라우저가 PWA 설치 요구사항을 만족했다고 판단하면 발생하는 이벤트
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -188,25 +189,33 @@ window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     // 이벤트를 보관해두었다가 나중에 버튼 클릭 시 실행
     deferredPrompt = e;
-    // 다운로드 버튼을 화면에 표시
-    if (installAppBtn) {
-        installAppBtn.classList.remove('hidden');
-    }
+    // 다운로드 버튼들을 화면에 표시
+    if (installAppBtn) installAppBtn.classList.remove('hidden');
+    if (sidebarInstallBtn) sidebarInstallBtn.classList.remove('hidden');
 });
 
-// 다운로드 버튼 클릭 시 설치 프롬프트 띄우기
-if (installAppBtn) {
-    installAppBtn.addEventListener('click', async () => {
-        if (!deferredPrompt) return;
-        // 보관했던 설치 프롬프트 창 띄우기
-        deferredPrompt.prompt();
-        // 사용자가 설치를 수락했는지 무시했는지 확인
-        const { outcome } = await deferredPrompt.userChoice;
-        if (outcome === 'accepted') {
-            installAppBtn.classList.add('hidden'); // 설치 수락 시 버튼 숨김
-        }
-        deferredPrompt = null; // 한 번 사용한 이벤트는 폐기
-    });
+const installApp = async () => {
+    if (!deferredPrompt) return;
+    // 보관했던 설치 프롬프트 창 띄우기
+    deferredPrompt.prompt();
+    // 사용자가 설치를 수락했는지 무시했는지 확인
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+        if (installAppBtn) installAppBtn.classList.add('hidden'); // 설치 수락 시 버튼 숨김
+        if (sidebarInstallBtn) sidebarInstallBtn.classList.add('hidden');
+    }
+    deferredPrompt = null; // 한 번 사용한 이벤트는 폐기
+};
+
+// 버튼 클릭 시 설치 프롬프트 띄우기 연결
+if (installAppBtn) installAppBtn.addEventListener('click', installApp);
+if (sidebarInstallBtn) sidebarInstallBtn.addEventListener('click', installApp);
+
+// 브라우저 메뉴 등을 통해 앱이 설치되었을 때의 처리
+window.addEventListener('appinstalled', () => {
+    if (installAppBtn) installAppBtn.classList.add('hidden');
+    if (sidebarInstallBtn) sidebarInstallBtn.classList.add('hidden');
+    deferredPrompt = null;
+});
 }
 
-}
