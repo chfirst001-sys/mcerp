@@ -615,9 +615,17 @@ export const init = (container) => {
     setTimeout(() => { activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); }, 50);
 };
 
+let lastReclickTime = 0; // 마지막 클릭 시간 저장용
+
 // 하단 탭을 다시 누를 때 (로테이션 기능)
 export const onReclick = () => {
     if (!subTabButtons) return;
+
+    // 빠른 연속 클릭 방지 (건너뜀 현상 해결)
+    const now = Date.now();
+    if (now - lastReclickTime < 300) return;
+    lastReclickTime = now;
+
     currentTabIndex = (currentTabIndex + 1) % tabIds.length;
     subTabButtons[currentTabIndex].click();
 };

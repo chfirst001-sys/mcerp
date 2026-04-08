@@ -1251,9 +1251,17 @@ export const init = (container) => {
     setTimeout(() => { activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); }, 50);
 };
 
+let lastReclickTime = 0; // 마지막 클릭 시간 저장용
+
 // 하단 탭을 다시 누를 때 (로테이션 기능)
 export const onReclick = () => {
     if (!subTabButtons) return;
+    
+    // 빠른 연속 클릭이나 모바일 터치 중복 발생으로 인한 건너뜀 방지
+    const now = Date.now();
+    if (now - lastReclickTime < 300) return; // 300ms 이내 중복 실행 차단
+    lastReclickTime = now;
+
     // 다음 탭 인덱스 계산 (끝에 도달하면 처음으로 돌아감)
     currentTabIndex = (currentTabIndex + 1) % tabIds.length;
     // 프로그래밍 방식으로 버튼 클릭 이벤트 발생 (렌더링 및 스크롤 자동 수행)
