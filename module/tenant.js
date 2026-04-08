@@ -439,28 +439,40 @@ export const init = (container) => {
         const content = document.getElementById('tenantContent');
         const tabId = tabIds[currentTabIndex];
         
+        // CSS Sticky 설정을 위한 변수 정의 (1행, 1열, 2열 틀고정)
+        const thBase = 'padding: 10px; border-bottom: 1px solid #bdc3c7; border-right: 1px solid #34495e; position: sticky; top: 0; z-index: 2; background-color: #2c3e50; color: white;';
+        const thLast = 'padding: 10px; border-bottom: 1px solid #bdc3c7; position: sticky; top: 0; z-index: 2; background-color: #2c3e50; color: white;';
+        const thCol1 = 'padding: 10px; border-bottom: 1px solid #bdc3c7; border-right: 1px solid #34495e; position: sticky; top: 0; left: 0; z-index: 3; background-color: #1a252f; color: white; width: 50px; min-width: 50px; box-sizing: border-box;';
+        const thCol2 = 'padding: 10px; border-bottom: 1px solid #bdc3c7; border-right: 2px solid #95a5a6; position: sticky; top: 0; left: 50px; z-index: 3; background-color: #1a252f; color: white; width: 80px; min-width: 80px; box-sizing: border-box; box-shadow: 2px 0 5px rgba(0,0,0,0.1);';
+        
+        const tdBase = 'padding: 10px; border-bottom: 1px solid #eee; border-right: 1px solid #eee;';
+        const tdLast = 'padding: 10px; border-bottom: 1px solid #eee;';
+        const tdCol1 = 'padding: 10px; border-bottom: 1px solid #eee; border-right: 1px solid #eee; position: sticky; left: 0; z-index: 1; background-color: inherit; width: 50px; min-width: 50px; box-sizing: border-box; text-align: center;';
+        const tdCol2 = 'padding: 10px; border-bottom: 1px solid #eee; border-right: 2px solid #bdc3c7; position: sticky; left: 50px; z-index: 1; background-color: inherit; font-weight: bold; color: #2980b9; width: 80px; min-width: 80px; box-sizing: border-box; box-shadow: 2px 0 5px rgba(0,0,0,0.05); text-align: center;';
+
         let theadHtml = '';
         if (tabId === 'household') {
-            theadHtml = `<th>No</th><th>호수</th><th>소유자</th><th>소유자 연락처</th><th>거주구분</th><th>거주자</th><th>거주자 연락처</th>`;
+            theadHtml = `<th style="${thCol1}">No</th><th style="${thCol2}">호수</th><th style="${thBase}">소유자</th><th style="${thBase}">소유자 연락처</th><th style="${thBase}">거주구분</th><th style="${thBase}">거주자</th><th style="${thLast}">거주자 연락처</th>`;
         } else if (tabId === 'owner') {
-            theadHtml = `<th>No</th><th>호수</th><th>소유자 이름</th><th>소유자 연락처</th><th>매매계약일</th><th>비고</th>`;
+            theadHtml = `<th style="${thCol1}">No</th><th style="${thCol2}">호수</th><th style="${thBase}">소유자 이름</th><th style="${thBase}">소유자 연락처</th><th style="${thBase}">매매계약일</th><th style="${thLast}">비고</th>`;
         } else if (tabId === 'resident') {
-            theadHtml = `<th>No</th><th>호수</th><th>거주구분</th><th>거주자 이름</th><th>거주자 연락처</th><th>계약일</th><th>계약기간</th>`;
+            theadHtml = `<th style="${thCol1}">No</th><th style="${thCol2}">호수</th><th style="${thBase}">거주구분</th><th style="${thBase}">거주자 이름</th><th style="${thBase}">거주자 연락처</th><th style="${thBase}">계약일</th><th style="${thLast}">계약기간</th>`;
         } else if (tabId === 'vehicle') {
-            theadHtml = `<th>No</th><th>호수</th><th>거주자</th><th>차량 1</th><th>차량 2</th><th>차량 3</th><th>차량 4</th>`;
+            theadHtml = `<th style="${thCol1}">No</th><th style="${thCol2}">호수</th><th style="${thBase}">거주자</th><th style="${thBase}">차량 1</th><th style="${thBase}">차량 2</th><th style="${thBase}">차량 3</th><th style="${thLast}">차량 4</th>`;
         } else if (tabId === 'items') {
-            theadHtml = `<th>No</th><th>호수</th><th>거주자</th>` + itemsConfig.map((item, idx) => 
-                `<th class="item-header-col" data-idx="${idx}" style="cursor:pointer; color:#f1c40f; text-decoration:underline;" title="클릭하여 상세 기록 및 수정">${escapeHtml(item.name)}</th>`
-            ).join('');
+            theadHtml = `<th style="${thCol1}">No</th><th style="${thCol2}">호수</th><th style="${thBase}">거주자</th>` + itemsConfig.map((item, idx) => {
+                const isLast = idx === itemsConfig.length - 1;
+                return `<th class="item-header-col" data-idx="${idx}" style="${isLast ? thLast : thBase} cursor:pointer; color:#f1c40f; text-decoration:underline;" title="클릭하여 상세 기록 및 수정">${escapeHtml(item.name)}</th>`;
+            }).join('');
         }
 
         let listHtml = `
             ${tabId === 'items' ? `<div style="text-align:right; margin-bottom:10px;"><button type="button" id="createNewItemBtn" style="background:#f39c12; color:white; border:none; padding:6px 12px; border-radius:4px; font-size:12px; cursor:pointer;">+ 새 입주물품 추가</button></div>` : ''}
-                <div style="overflow-x: auto; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                    <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 13px; white-space: nowrap;">
+                <div style="overflow: auto; max-height: 600px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); position: relative;">
+                    <table style="width: 100%; border-collapse: separate; border-spacing: 0; text-align: center; font-size: 13px; white-space: nowrap;">
                         <thead>
-                            <tr style="background: #2c3e50; color: white;">
-                                ${theadHtml.replace(/<th>/g, '<th style="padding: 10px; border-bottom: 1px solid #bdc3c7; border-right: 1px solid #34495e;">')}
+                            <tr>
+                                ${theadHtml}
                             </tr>
                         </thead>
                         <tbody>
@@ -473,49 +485,48 @@ export const init = (container) => {
                 if(resType === '직주') badgeColor = '#27ae60';
                 else if(resType === '전세' || resType === '월세') badgeColor = '#f39c12';
 
-            let rowHtml = `<td style="padding: 10px; border-right: 1px solid #eee;">${idx + 1}</td>
-                           <td style="padding: 10px; font-weight: bold; color: #2980b9; border-right: 1px solid #eee;">${escapeHtml(room)}</td>`;
+            let rowHtml = `<td style="${tdCol1}">${idx + 1}</td>
+                           <td style="${tdCol2}">${escapeHtml(room)}</td>`;
             
             if (tabId === 'household') {
-                rowHtml += `<td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.ownerName || '-')}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.ownerPhone || '-')}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">
-                            <span style="padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: ${badgeColor}; color: white;">
-                                ${escapeHtml(resType)}
-                            </span>
-                        </td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.residentName || '-')}</td>
-                            <td style="padding: 10px;">${escapeHtml(info.residentPhone || '-')}</td>`;
-            } else if (tabId === 'owner') {
-                rowHtml += `<td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.ownerName || '-')}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.ownerPhone || '-')}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.ownerDate || '-')}</td>
-                            <td style="padding: 10px; white-space: normal; min-width: 150px;">${escapeHtml(info.ownerNote || '-')}</td>`;
-            } else if (tabId === 'resident') {
-                rowHtml += `<td style="padding: 10px; border-right: 1px solid #eee;">
+                rowHtml += `<td style="${tdBase}">${escapeHtml(info.ownerName || '-')}</td>
+                            <td style="${tdBase}">${escapeHtml(info.ownerPhone || '-')}</td>
+                            <td style="${tdBase}">
                                 <span style="padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: ${badgeColor}; color: white;">${escapeHtml(resType)}</span>
                             </td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.residentName || '-')}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.residentPhone || '-')}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${escapeHtml(info.residentDate || '-')}</td>
-                            <td style="padding: 10px;">${escapeHtml(info.residentPeriod || '-')}</td>`;
+                            <td style="${tdBase}">${escapeHtml(info.residentName || '-')}</td>
+                            <td style="${tdLast}">${escapeHtml(info.residentPhone || '-')}</td>`;
+            } else if (tabId === 'owner') {
+                rowHtml += `<td style="${tdBase}">${escapeHtml(info.ownerName || '-')}</td>
+                            <td style="${tdBase}">${escapeHtml(info.ownerPhone || '-')}</td>
+                            <td style="${tdBase}">${escapeHtml(info.ownerDate || '-')}</td>
+                            <td style="${tdLast} white-space: normal; min-width: 150px;">${escapeHtml(info.ownerNote || '-')}</td>`;
+            } else if (tabId === 'resident') {
+                rowHtml += `<td style="${tdBase}">
+                                <span style="padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: ${badgeColor}; color: white;">${escapeHtml(resType)}</span>
+                            </td>
+                            <td style="${tdBase}">${escapeHtml(info.residentName || '-')}</td>
+                            <td style="${tdBase}">${escapeHtml(info.residentPhone || '-')}</td>
+                            <td style="${tdBase}">${escapeHtml(info.residentDate || '-')}</td>
+                            <td style="${tdLast}">${escapeHtml(info.residentPeriod || '-')}</td>`;
             } else if (tabId === 'vehicle') {
                 const v = info.vehicles || [];
                 const getV = (i) => v[i] ? `${escapeHtml(v[i].num)}<br><span style="font-size:11px; color:#7f8c8d;">(${escapeHtml(v[i].type)})</span>` : '-';
-                rowHtml += `<td style="padding: 10px; border-right: 1px solid #eee; background: #fdfdfd;">${escapeHtml(info.residentName || '-')}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${getV(0)}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${getV(1)}</td>
-                            <td style="padding: 10px; border-right: 1px solid #eee;">${getV(2)}</td>
-                            <td style="padding: 10px;">${getV(3)}</td>`;
+                rowHtml += `<td style="${tdBase}">${escapeHtml(info.residentName || '-')}</td>
+                            <td style="${tdBase}">${getV(0)}</td>
+                            <td style="${tdBase}">${getV(1)}</td>
+                            <td style="${tdBase}">${getV(2)}</td>
+                            <td style="${tdLast}">${getV(3)}</td>`;
             } else if (tabId === 'items') {
-                rowHtml += `<td style="padding: 10px; border-right: 1px solid #eee; background: #fdfdfd;">${escapeHtml(info.residentName || '-')}</td>`;
-                itemsConfig.forEach(item => {
+                rowHtml += `<td style="${tdBase}">${escapeHtml(info.residentName || '-')}</td>`;
+                itemsConfig.forEach((item, index) => {
                     const roomIssueCount = item.issues.filter(i => i.room === room).reduce((s, i) => s + Number(i.qty), 0);
-                    rowHtml += `<td style="padding: 10px; border-right: 1px solid #eee; ${roomIssueCount > 0 ? 'font-weight:bold; color:#2980b9;' : 'color:#bdc3c7;'}">${roomIssueCount}</td>`;
+                    const isLast = index === itemsConfig.length - 1;
+                    rowHtml += `<td style="${isLast ? tdLast : tdBase} ${roomIssueCount > 0 ? 'font-weight:bold; color:#2980b9;' : 'color:#bdc3c7;'}">${roomIssueCount}</td>`;
                 });
             }
 
-            listHtml += `<tr class="room-row" data-room="${escapeHtml(room)}" style="cursor: pointer; border-bottom: 1px solid #eee; transition: background 0.2s;" onmouseover="this.style.background='#f4f6f8'" onmouseout="this.style.background='transparent'">${rowHtml}</tr>`;
+            listHtml += `<tr class="room-row" data-room="${escapeHtml(room)}" style="cursor: pointer; background-color: #fff; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f4f6f8'" onmouseout="this.style.backgroundColor='#fff'">${rowHtml}</tr>`;
             });
             
             listHtml += '</tbody></table></div>';
