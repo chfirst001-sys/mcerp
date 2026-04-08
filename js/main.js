@@ -36,6 +36,10 @@ export const escapeHtml = (unsafe) => {
          .replace(/'/g, "&#039;");
 };
 
+// 모듈 캐시 버저닝으로 인해 main.js가 두 번 실행되더라도 이벤트가 중복 등록되지 않도록 방어
+if (!window._isMainInitialized) {
+    window._isMainInitialized = true;
+
 // DOM 요소
 const appContent = document.getElementById('app-content');
 const tabItems = document.querySelectorAll('.tab-item');
@@ -172,4 +176,37 @@ if ('serviceWorker' in navigator) {
             console.error('ServiceWorker 등록 실패:', error);
         });
     });
+}
+
+// === PWA 설치(홈 화면에 추가) 프롬프트 제어 ===
+let deferredPrompt;
+const installAppBtn = document.getElementById('installAppBtn');
+
+// 브라우저가 PWA 설치 요구사항을 만족했다고 판단하면 발생하는 이벤트
+window.addEventListener('beforeinstallprompt', (e) => {
+    // 기본 제공되는 설치 안내 미니 바 방지
+    e.preventDefault();
+    // 이벤트를 보관해두었다가 나중에 버튼 클릭 시 실행
+    deferredPrompt = e;
+    // 다운로드 버튼을 화면에 표시
+    if (installAppBtn) {
+        installAppBtn.classList.remove('hidden');
+    }
+});
+
+// 다운로드 버튼 클릭 시 설치 프롬프트 띄우기
+if (installAppBtn) {
+    installAppBtn.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        // 보관했던 설치 프롬프트 창 띄우기
+        deferredPrompt.prompt();
+        // 사용자가 설치를 수락했는지 무시했는지 확인
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+            installAppBtn.classList.add('hidden'); // 설치 수락 시 버튼 숨김
+        }
+        deferredPrompt = null; // 한 번 사용한 이벤트는 폐기
+    });
+}
+
 }
