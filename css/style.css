@@ -29,13 +29,15 @@ button:hover { background: #1c5980; }
 .bottom-bar {
     position: fixed; bottom: 0; left: 0; right: 0; height: 65px;
     background-color: #fff; border-top: 1px solid #e0e0e0;
-    display: flex; justify-content: space-around; align-items: center;
+    display: flex; justify-content: flex-start; align-items: center;
+    overflow-x: auto; white-space: nowrap;
     z-index: 1000; padding-bottom: env(safe-area-inset-bottom);
     box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
 }
+.bottom-bar::-webkit-scrollbar { display: none; }
 .tab-item {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    flex: 1; height: 100%; cursor: pointer; color: #95a5a6; transition: color 0.2s;
+    flex: 0 0 70px; height: 100%; cursor: pointer; color: #95a5a6; transition: color 0.2s;
     /* 모바일 텍스트 선택 및 기본 터치 팝업 차단 */
     -webkit-user-select: none;
     user-select: none;

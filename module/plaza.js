@@ -2,16 +2,8 @@ const tabIds = ['friend', 'chat', 'community'];
 let currentTabIndex = 0;
 let subTabButtons = null;
 let currentSubModule = null; // 현재 로드된 서브 모듈 인스턴스 보관용
-let lastBuildingId = null; // 건물 변경 감지용
 
 export const init = (container) => {
-    // 건물이 변경되면 서브 탭을 첫 번째('친구') 탭으로 안전하게 초기화
-    const currentBuildingId = localStorage.getItem('selectedBuildingId');
-    if (lastBuildingId !== currentBuildingId) {
-        currentTabIndex = 0;
-        lastBuildingId = currentBuildingId;
-    }
-
     container.innerHTML = `
         <!-- 상단 서브 탭 메뉴 -->
         <div class="sub-tab-menu">
@@ -21,7 +13,7 @@ export const init = (container) => {
         </div>
 
         <!-- 하위 메뉴별 컨텐츠가 렌더링될 영역 -->
-        <div class="module-card" id="plazaContent">
+        <div id="plazaContent">
         </div>
     `;
 

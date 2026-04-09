@@ -1,6 +1,6 @@
 // Firebase SDK 모듈 가져오기
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { getFirestore, doc, getDoc, updateDoc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
 // 앱 버전 (코드를 업데이트할 때마다 이 값을 변경하면 브라우저가 최신 파일을 불러옵니다)
@@ -123,12 +123,39 @@ const loginError = document.getElementById('loginError');
 const logoutBtn = document.querySelector('.account-btn'); // 상단 사람 아이콘
 
 // 인증 상태 감지 (로그인/로그아웃)
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
     if (user) {
         // 로그인 성공 시 메인 화면 표시
         loginScreen.classList.add('hidden');
         appWrapper.classList.remove('hidden');
-        loadModule('dashboard'); // 로그인 확인 후 대시보드 로드
+        
+        // 사용자 권한 확인 및 탭 필터링
+        try {
+            const userDoc = await getDoc(doc(db, "users", user.uid));
+            let roleWeight = 30; // 기본값 (일반 입주자)
+            if (userDoc.exists()) {
+                const role = userDoc.data().role;
+                const roleWeights = {
+                    'architect': 100, 'mc_header': 90, 'mc_front': 80,
+                    'mega_admin': 70, 'mega_staff': 60,
+                    'building_manager': 50, 'building_exec': 40, 'tenant': 30,
+                    'admin': 100, 'staff': 80
+                };
+                roleWeight = roleWeights[role] || 30;
+            }
+            
+            const adminTabs = document.querySelectorAll('.tab-item.admin-only');
+            if (roleWeight > 30) {
+                adminTabs.forEach(tab => tab.style.display = 'flex');
+                loadModule('dashboard'); // 관리자는 대시보드 화면을 먼저 띄움
+            } else {
+                adminTabs.forEach(tab => tab.style.display = 'none');
+                loadModule('plaza'); // 입주민/일반 유저는 광장 화면을 먼저 띄움
+            }
+        } catch (e) {
+            console.error("권한 확인 실패:", e);
+            loadModule('plaza');
+        }
     } else {
         // 로그아웃 상태일 때 로그인 화면 표시
         loginScreen.classList.remove('hidden');
@@ -157,13 +184,115 @@ loginForm.addEventListener('submit', async (e) => {
     }
 });
 
-// 로그아웃 이벤트 처리
-logoutBtn.addEventListener('click', async () => {
+// === 멀티 프로필 및 계정 관리 모달 처리 ===
+const accountModal = document.getElementById('accountModal');
+const closeAccountModalBtn = document.getElementById('closeAccountModalBtn');
+const modalLogoutBtn = document.getElementById('modalLogoutBtn');
+const addProfileBtn = document.getElementById('addProfileBtn');
+const profileList = document.getElementById('profileList');
+
+const renderProfiles = async () => {
+    if (!auth.currentUser) return;
+    
+    const defaultName = auth.currentUser.displayName || auth.currentUser.email.split('@')[0];
+    document.getElementById('accountModalName').textContent = defaultName;
+    document.getElementById('accountModalEmail').textContent = auth.currentUser.email;
+
+    profileList.innerHTML = '<li style="text-align:center; font-size:12px; color:#7f8c8d;">불러오는 중...</li>';
+
+    try {
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        let profiles = [];
+        if (userDoc.exists() && userDoc.data().profiles) {
+            profiles = userDoc.data().profiles;
+        }
+
+        const activeProfile = localStorage.getItem('activeProfileName') || defaultName;
+        let html = '';
+        
+        // 기본 계정 프로필 항목
+        const isMainActive = activeProfile === defaultName;
+        html += `
+            <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid ${isMainActive ? '#3498db' : '#e0e0e0'}; background: ${isMainActive ? '#e8f4f8' : '#fff'}; border-radius: 8px;">
+                <div style="font-size: 13px; font-weight: bold; color: #2c3e50;">${escapeHtml(defaultName)} <span style="font-size:10px; color:#7f8c8d; font-weight:normal;">(본계정)</span></div>
+                ${isMainActive ? '<span style="font-size: 11px; background: #2980b9; color: white; padding: 2px 6px; border-radius: 4px;">적용중</span>' : `<button class="set-profile-btn" data-name="${escapeHtml(defaultName)}" style="background: #f0f3f4; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">선택</button>`}
+            </li>
+        `;
+
+        // 추가된 멀티 프로필 항목
+        profiles.forEach(p => {
+            const isActive = activeProfile === p;
+            html += `
+                <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid ${isActive ? '#3498db' : '#e0e0e0'}; background: ${isActive ? '#e8f4f8' : '#fff'}; border-radius: 8px;">
+                    <div style="font-size: 13px; font-weight: bold; color: #2c3e50;">${escapeHtml(p)}</div>
+                    <div style="display: flex; gap: 5px;">
+                        ${isActive ? '<span style="font-size: 11px; background: #2980b9; color: white; padding: 2px 6px; border-radius: 4px;">적용중</span>' : `<button class="set-profile-btn" data-name="${escapeHtml(p)}" style="background: #f0f3f4; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">선택</button>`}
+                        <button class="del-profile-btn" data-name="${escapeHtml(p)}" style="background: #fadbd8; color: #c0392b; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">삭제</button>
+                    </div>
+                </li>
+            `;
+        });
+
+        profileList.innerHTML = html;
+
+        profileList.querySelectorAll('.set-profile-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                localStorage.setItem('activeProfileName', e.target.dataset.name);
+                renderProfiles();
+            });
+        });
+
+        profileList.querySelectorAll('.del-profile-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                if (confirm(`'${e.target.dataset.name}' 프로필을 삭제하시겠습니까?`)) {
+                    await updateDoc(doc(db, "users", auth.currentUser.uid), {
+                        profiles: arrayRemove(e.target.dataset.name)
+                    });
+                    if (localStorage.getItem('activeProfileName') === e.target.dataset.name) {
+                        localStorage.removeItem('activeProfileName');
+                    }
+                    renderProfiles();
+                }
+            });
+        });
+
+    } catch (e) {
+        console.error("프로필 로드 에러:", e);
+        profileList.innerHTML = '<li style="text-align:center; font-size:12px; color:#e74c3c;">오류가 발생했습니다.</li>';
+    }
+};
+
+logoutBtn.addEventListener('click', () => {
+    if (auth.currentUser) {
+        accountModal.style.display = 'flex';
+        renderProfiles();
+    }
+});
+
+closeAccountModalBtn.addEventListener('click', () => { accountModal.style.display = 'none'; });
+
+modalLogoutBtn.addEventListener('click', async () => {
     if (confirm('로그아웃 하시겠습니까?')) {
         await signOut(auth);
-        // 로그아웃 시 선택된 건물 정보 초기화
         localStorage.removeItem('selectedBuildingId');
         localStorage.removeItem('selectedBuildingName');
+        localStorage.removeItem('activeProfileName');
+        accountModal.style.display = 'none';
+    }
+});
+
+addProfileBtn.addEventListener('click', async () => {
+    const newName = prompt('새로운 프로필 닉네임을 입력하세요:');
+    if (newName && newName.trim()) {
+        try {
+            await updateDoc(doc(db, "users", auth.currentUser.uid), {
+                profiles: arrayUnion(newName.trim())
+            });
+            renderProfiles();
+        } catch (error) {
+            console.error("프로필 추가 에러:", error);
+            alert("프로필 추가에 실패했습니다.");
+        }
     }
 });
 
@@ -218,4 +347,3 @@ window.addEventListener('appinstalled', () => {
     deferredPrompt = null;
 });
 }
-

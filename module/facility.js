@@ -1,7 +1,7 @@
 import { doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { db, escapeHtml } from "../js/main.js";
+import { db, auth, escapeHtml } from "../js/main.js";
 
-const tabIds = ['partner', 'equipment', 'fixture', 'zone'];
+const tabIds = ['partner', 'equipment', 'fixture', 'zone', 'info'];
 let currentTabIndex = 0; // 현재 선택된 서브 탭 인덱스 유지
 let lastBuildingId = null; // 마지막으로 로드된 건물 ID 추적
 
@@ -28,6 +28,7 @@ export const init = (container) => {
             <button class="sub-tab-btn" data-tab="equipment">설비시설</button>
             <button class="sub-tab-btn" data-tab="fixture">기구/비품</button>
             <button class="sub-tab-btn" data-tab="zone">건물구역</button>
+            <button class="sub-tab-btn" data-tab="info">건물정보</button>
         </div>
 
         <!-- 하위 메뉴별 컨텐츠가 렌더링될 영역 -->
@@ -40,22 +41,59 @@ export const init = (container) => {
                 <div style="overflow-y: auto; padding-right: 5px;">
                     <input type="hidden" id="detailItemId">
                     
-                    <label style="font-size: 12px; color: #7f8c8d;">사진 등록</label>
+                    <label style="font-size: 12px; color: #7f8c8d;">항목 이름 <span style="color:#e74c3c">*</span></label>
+                    <input type="text" id="detailItemName" placeholder="항목 이름을 입력하세요" style="margin-bottom: 15px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; max-width: 100%;">
+                    
+                    <label style="font-size: 12px; color: #7f8c8d;">사진 등록 (여러 장 가능)</label>
                     <div style="margin-bottom: 15px; text-align: center; border: 1px dashed #ccc; padding: 10px; border-radius: 4px;">
-                        <img id="detailPhotoPreview" src="" style="max-width: 100%; max-height: 150px; display: none; margin: 0 auto 10px auto; border-radius: 4px;">
-                        <input type="file" id="detailPhotoInput" accept="image/*" style="font-size: 12px; max-width: 100%;">
+                        <div id="detailPhotoContainer" style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; justify-content: center;"></div>
+                        <input type="file" id="detailPhotoInput" accept="image/*" multiple style="font-size: 12px; max-width: 100%;">
                     </div>
 
-                    <label style="font-size: 12px; color: #7f8c8d;">구입일자</label>
+                    <label style="font-size: 12px; color: #7f8c8d;">등록일자</label>
                     <input type="date" id="detailPurchaseDate" style="margin-bottom: 15px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; max-width: 100%;">
 
                     <label style="font-size: 12px; color: #7f8c8d;">관리자</label>
-                    <input type="text" id="detailManager" placeholder="관리자 이름 입력" style="margin-bottom: 20px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; max-width: 100%;">
+                    <input type="text" id="detailManager" placeholder="관리자 이름 입력" style="margin-bottom: 15px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; max-width: 100%;">
+                    
+                    <label style="font-size: 12px; color: #7f8c8d;">메모</label>
+                    <textarea id="detailMemo" placeholder="상세 메모를 입력하세요" style="margin-bottom: 20px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; max-width: 100%; height: 80px; resize: none;"></textarea>
+                    
+                    <hr style="border: 0; border-top: 1px dashed #ccc; margin: 15px 0;">
+                    <h4 style="margin: 0 0 10px 0; color: #2c3e50; font-size: 14px;">기록 목록</h4>
+                    <div id="detailRecordList" style="margin-bottom: 20px; max-height: 150px; overflow-y: auto; background: #f8f9fa; border: 1px solid #eee; border-radius: 4px; padding: 10px;">
+                        <div style="font-size: 12px; color: #7f8c8d; text-align: center;">기록이 없습니다.</div>
+                    </div>
                 </div>
                 
                 <div style="display: flex; gap: 10px; flex-shrink: 0;">
                     <button id="saveDetailBtn" style="flex: 1; background: #2980b9; padding: 12px; font-size: 14px; color: white; border: none; border-radius: 4px; cursor: pointer;">저장</button>
                     <button id="cancelDetailBtn" style="flex: 1; background: #95a5a6; padding: 12px; font-size: 14px; color: white; border: none; border-radius: 4px; cursor: pointer;">취소</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 기록 추가 모달 -->
+        <div id="recordModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 4500; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); display: flex; flex-direction: column;">
+                <h3 style="margin-top: 0; color: #2c3e50; margin-bottom: 20px;">새 기록 추가</h3>
+                <input type="hidden" id="recordItemId">
+                
+                <label style="font-size: 12px; color: #7f8c8d;">제목 <span style="color:#e74c3c">*</span></label>
+                <input type="text" id="recordTitle" placeholder="기록 제목" style="margin-bottom: 15px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                
+                <label style="font-size: 12px; color: #7f8c8d;">기록날짜</label>
+                <input type="date" id="recordDate" style="margin-bottom: 15px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                
+                <label style="font-size: 12px; color: #7f8c8d;">작성자</label>
+                <input type="text" id="recordAuthor" placeholder="작성자 이름" style="margin-bottom: 15px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                
+                <label style="font-size: 12px; color: #7f8c8d;">메모</label>
+                <textarea id="recordMemo" placeholder="상세 내용을 입력하세요" style="margin-bottom: 20px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; height: 80px; resize: none;"></textarea>
+                
+                <div style="display: flex; gap: 10px;">
+                    <button id="saveRecordBtn" style="flex: 1; background: #2980b9; padding: 12px; font-size: 14px; color: white; border: none; border-radius: 4px; cursor: pointer;">저장</button>
+                    <button id="cancelRecordBtn" style="flex: 1; background: #95a5a6; padding: 12px; font-size: 14px; color: white; border: none; border-radius: 4px; cursor: pointer;">취소</button>
                 </div>
             </div>
         </div>
@@ -67,21 +105,79 @@ export const init = (container) => {
     // 공통 파일 상세 모달 이벤트 바인딩
     const fileDetailModal = document.getElementById('fileDetailModal');
     const photoInput = document.getElementById('detailPhotoInput');
-    const photoPreview = document.getElementById('detailPhotoPreview');
+    const photoContainer = document.getElementById('detailPhotoContainer');
+    
+    let tempPhotos = [];
+
+    const renderPhotoPreviews = () => {
+        photoContainer.innerHTML = '';
+        tempPhotos.forEach((photoSrc, idx) => {
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position: relative; display: inline-block;';
+            
+            const img = document.createElement('img');
+            img.src = photoSrc;
+            img.style.cssText = 'width: 70px; height: 70px; object-fit: cover; border-radius: 4px; border: 1px solid #eee;';
+            
+            const delBtn = document.createElement('button');
+            delBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">close</span>';
+            delBtn.style.cssText = 'position: absolute; top: -5px; right: -5px; background: #e74c3c; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; cursor: pointer; padding: 0;';
+            delBtn.onclick = (e) => {
+                e.preventDefault();
+                tempPhotos.splice(idx, 1);
+                renderPhotoPreviews();
+            };
+            
+            wrapper.appendChild(img);
+            wrapper.appendChild(delBtn);
+            photoContainer.appendChild(wrapper);
+        });
+    };
 
     if (photoInput) {
         photoInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+            
+            let loadedCount = 0;
+            files.forEach(file => {
                 const reader = new FileReader();
                 reader.onload = (ev) => {
-                    photoPreview.src = ev.target.result;
-                    photoPreview.style.display = 'block';
+                    tempPhotos.push(ev.target.result);
+                    loadedCount++;
+                    if (loadedCount === files.length) {
+                        renderPhotoPreviews();
+                        photoInput.value = ''; // 재선택을 위해 초기화
+                    }
                 };
                 reader.readAsDataURL(file);
-            }
+            });
         });
     }
+    
+    const renderItemRecords = (item) => {
+        const listEl = document.getElementById('detailRecordList');
+        if (!listEl) return;
+        if (!item.records || item.records.length === 0) {
+            listEl.innerHTML = '<div style="font-size: 12px; color: #7f8c8d; text-align: center; padding: 10px;">기록이 없습니다.</div>';
+            return;
+        }
+        
+        const sortedRecords = [...item.records].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        
+        listEl.innerHTML = sortedRecords.map(rec => `
+            <div style="border: 1px solid #ddd; border-radius: 4px; margin-bottom: 8px; background: white; overflow: hidden;">
+                <div style="padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: #fdfefe; transition: background 0.2s;" onclick="const content = this.nextElementSibling; content.style.display = content.style.display === 'none' ? 'block' : 'none';">
+                    <div style="font-size: 13px; font-weight: bold; color: #2c3e50;">${escapeHtml(rec.title)}</div>
+                    <div style="font-size: 11px; color: #7f8c8d;">${escapeHtml(rec.date)} ▾</div>
+                </div>
+                <div style="display: none; padding: 10px; border-top: 1px dashed #eee; font-size: 12px; color: #34495e; background: #fff;">
+                    <div style="margin-bottom: 5px;"><strong style="color: #7f8c8d;">작성자:</strong> ${escapeHtml(rec.author || '알 수 없음')}</div>
+                    <div style="white-space: pre-wrap;">${escapeHtml(rec.memo || '')}</div>
+                </div>
+            </div>
+        `).join('');
+    };
 
     document.getElementById('cancelDetailBtn')?.addEventListener('click', () => {
         fileDetailModal.style.display = 'none';
@@ -89,15 +185,75 @@ export const init = (container) => {
 
     document.getElementById('saveDetailBtn')?.addEventListener('click', () => {
         const itemId = document.getElementById('detailItemId').value;
+        const itemName = document.getElementById('detailItemName').value.trim();
+
+        if (!itemName) {
+            alert('항목 이름을 입력해주세요.');
+            document.getElementById('detailItemName').focus();
+            return;
+        }
+
+        if (itemId) { // 기존 항목 업데이트
+            const item = treeData.find(i => i.id === itemId);
+            if (item) {
+                item.name = itemName;
+                item.purchaseDate = document.getElementById('detailPurchaseDate').value;
+                item.manager = document.getElementById('detailManager').value;
+                item.memo = document.getElementById('detailMemo').value;
+                item.photos = [...tempPhotos]; // 배열로 저장
+                delete item.photo; // 과거 단일 사진 필드 정리
+                
+                saveTreeData().then(() => {
+                    alert('상세 정보가 수정되었습니다.');
+                    fileDetailModal.style.display = 'none';
+                    if (currentTreeType) renderTreeUI(currentTreeType.replace('Tree', ''));
+                });
+            }
+        } else { // 새 항목 생성
+            treeData.push({
+                id: Date.now().toString(), parentId: selectedFolderId, name: itemName, type: 'file',
+                purchaseDate: document.getElementById('detailPurchaseDate').value,
+                manager: document.getElementById('detailManager').value,
+                memo: document.getElementById('detailMemo').value,
+                photos: [...tempPhotos]
+            });
+            saveTreeData().then(() => {
+                alert('새 항목이 생성 및 저장되었습니다.');
+                fileDetailModal.style.display = 'none';
+                if (currentTreeType) renderTreeUI(currentTreeType.replace('Tree', ''));
+            });
+        }
+    });
+    
+    document.getElementById('cancelRecordBtn')?.addEventListener('click', () => {
+        document.getElementById('recordModal').style.display = 'none';
+    });
+
+    document.getElementById('saveRecordBtn')?.addEventListener('click', () => {
+        const itemId = document.getElementById('recordItemId').value;
+        const title = document.getElementById('recordTitle').value.trim();
+        const date = document.getElementById('recordDate').value;
+        const author = document.getElementById('recordAuthor').value.trim();
+        const memo = document.getElementById('recordMemo').value.trim();
+
+        if (!title) {
+            alert('제목을 입력해주세요.');
+            document.getElementById('recordTitle').focus();
+            return;
+        }
+
         const item = treeData.find(i => i.id === itemId);
         if (item) {
-            item.purchaseDate = document.getElementById('detailPurchaseDate').value;
-            item.manager = document.getElementById('detailManager').value;
-            item.photo = photoPreview.style.display !== 'none' ? photoPreview.src : null;
-            
+            if (!item.records) item.records = [];
+            item.records.push({ id: 'rec_' + Date.now(), title, date, author, memo });
+
             saveTreeData().then(() => {
-                alert('상세 정보가 저장되었습니다.');
-                fileDetailModal.style.display = 'none';
+                alert('기록이 추가되었습니다.');
+                document.getElementById('recordModal').style.display = 'none';
+                // 상세정보 모달이 열려있다면 목록 새로고침
+                if (document.getElementById('fileDetailModal').style.display === 'flex') {
+                    renderItemRecords(item);
+                }
             });
         }
     });
@@ -232,7 +388,7 @@ export const init = (container) => {
     // --- 트리(설비/비품) 데이터 로드 및 저장 ---
     const loadTreeData = async (prefix) => {
         const bId = localStorage.getItem('selectedBuildingId');
-        currentTreeType = prefix === 'equipment' ? 'equipmentTree' : 'fixtureTree';
+        currentTreeType = prefix + 'Tree';
         selectedFolderId = null;
         movingItemId = null;
 
@@ -296,7 +452,14 @@ export const init = (container) => {
             children.forEach(item => {
                 const isSelected = item.id === selectedFolderId;
                 const isMoving = item.id === movingItemId;
-                const icon = item.type === 'folder' ? (isSelected ? 'folder_open' : 'folder') : (currentTreeType === 'equipmentTree' ? 'build' : 'devices');
+                
+                let fileIcon = 'description';
+                if (currentTreeType === 'equipmentTree') fileIcon = 'build';
+                else if (currentTreeType === 'fixtureTree') fileIcon = 'devices';
+                else if (currentTreeType === 'zoneTree') fileIcon = 'location_on';
+                else if (currentTreeType === 'infoTree') fileIcon = 'info';
+                
+                const icon = item.type === 'folder' ? (isSelected ? 'folder_open' : 'folder') : fileIcon;
                 const color = item.type === 'folder' ? '#f39c12' : '#7f8c8d';
 
                 html += `
@@ -311,6 +474,7 @@ export const init = (container) => {
                                 <span style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ${isMoving ? 'font-weight:bold; color:#d35400;' : ''}">${escapeHtml(item.name)}</span>
                             </div>
                             <div style="display: flex; gap: 4px; flex-shrink: 0;">
+                                ${item.type === 'file' ? `<span class="material-symbols-outlined record-btn" style="font-size: 16px; color: #27ae60; padding: 4px; background: #fff; border-radius: 4px; border: 1px solid #eee; transition: all 0.2s;" title="기록 추가" onmouseover="this.style.background='#e8f4f8'" onmouseout="this.style.background='#fff'">history</span>` : ''}
                                 <span class="material-symbols-outlined edit-btn" style="font-size: 16px; color: #3498db; padding: 4px; background: #fff; border-radius: 4px; border: 1px solid #eee; transition: all 0.2s;" title="수정" onmouseover="this.style.background='#e8f4f8'" onmouseout="this.style.background='#fff'">edit</span>
                                 <span class="material-symbols-outlined del-btn" style="font-size: 16px; color: #e74c3c; padding: 4px; background: #fff; border-radius: 4px; border: 1px solid #eee; transition: all 0.2s;" title="삭제" onmouseover="this.style.background='#fdf2e9'" onmouseout="this.style.background='#fff'">delete</span>
                             </div>
@@ -366,8 +530,30 @@ export const init = (container) => {
             }, { passive: true });
 
             // 수정 및 삭제 버튼 이벤트
+            const recordBtn = node.querySelector('.record-btn');
             const editBtn = node.querySelector('.edit-btn');
             const delBtn = node.querySelector('.del-btn');
+            
+            if (recordBtn) {
+                recordBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    cancelPress();
+                    const item = treeData.find(i => i.id === id);
+                    if (item) {
+                        document.getElementById('recordItemId').value = item.id;
+                        document.getElementById('recordTitle').value = '';
+                        const today = new Date();
+                        document.getElementById('recordDate').value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+                        
+                        const defaultName = auth.currentUser ? (auth.currentUser.displayName || auth.currentUser.email.split('@')[0]) : '';
+                        const activeProfile = localStorage.getItem('activeProfileName') || defaultName;
+                        document.getElementById('recordAuthor').value = activeProfile;
+                        
+                        document.getElementById('recordMemo').value = '';
+                        document.getElementById('recordModal').style.display = 'flex';
+                    }
+                });
+            }
 
             if (editBtn) {
                 editBtn.addEventListener('click', (e) => {
@@ -375,10 +561,31 @@ export const init = (container) => {
                     cancelPress();
                     const item = treeData.find(i => i.id === id);
                     if (item) {
-                        const newName = prompt('새 이름을 입력하세요:', item.name);
-                        if (newName && newName.trim()) {
-                            item.name = newName.trim();
-                            saveTreeData().then(() => renderTreeUI(prefix));
+                        if (item.type === 'folder') {
+                            const newName = prompt('새 폴더 이름을 입력하세요:', item.name);
+                            if (newName && newName.trim()) {
+                                item.name = newName.trim();
+                                saveTreeData().then(() => renderTreeUI(prefix));
+                            }
+                        } else {
+                            // 항목일 경우 상세 정보 모달창 띄우기
+                            document.getElementById('detailItemId').value = item.id;
+                            document.getElementById('fileDetailModalTitle').textContent = item.name + ' 수정';
+                            document.getElementById('detailItemName').value = item.name || '';
+                            
+                            tempPhotos = [];
+                            if (item.photos && Array.isArray(item.photos)) tempPhotos = [...item.photos];
+                            else if (item.photo) tempPhotos = [item.photo]; // 이전 버전 호환성
+                            renderPhotoPreviews();
+                            
+                            document.getElementById('detailPhotoInput').value = '';
+                            document.getElementById('detailPurchaseDate').value = item.purchaseDate || '';
+                            document.getElementById('detailManager').value = item.manager || '';
+                            document.getElementById('detailMemo').value = item.memo || '';
+                            
+                            renderItemRecords(item);
+                            
+                            document.getElementById('fileDetailModal').style.display = 'flex';
                         }
                     }
                 });
@@ -445,18 +652,19 @@ export const init = (container) => {
                     if (item) {
                         document.getElementById('detailItemId').value = item.id;
                         document.getElementById('fileDetailModalTitle').textContent = item.name + ' 상세 정보';
+                        document.getElementById('detailItemName').value = item.name || '';
                         
-                        const preview = document.getElementById('detailPhotoPreview');
-                        if (item.photo) {
-                            preview.src = item.photo;
-                            preview.style.display = 'block';
-                        } else {
-                            preview.src = '';
-                            preview.style.display = 'none';
-                        }
+                        tempPhotos = [];
+                        if (item.photos && Array.isArray(item.photos)) tempPhotos = [...item.photos];
+                        else if (item.photo) tempPhotos = [item.photo];
+                        renderPhotoPreviews();
+                        
                         document.getElementById('detailPhotoInput').value = '';
                         document.getElementById('detailPurchaseDate').value = item.purchaseDate || '';
                         document.getElementById('detailManager').value = item.manager || '';
+                        document.getElementById('detailMemo').value = item.memo || '';
+                        
+                        renderItemRecords(item);
                         
                         document.getElementById('fileDetailModal').style.display = 'flex';
                     }
@@ -471,10 +679,8 @@ export const init = (container) => {
         switch(tabId) {
             case 'partner': 
                 html = `
-                    <div class="module-card">
-                        <div id="partnerContent">
-                            <div style="text-align: center; padding: 20px; color: #7f8c8d;">데이터를 불러오는 중...</div>
-                        </div>
+                    <div id="partnerContent">
+                        <div style="text-align: center; padding: 20px; color: #7f8c8d;">데이터를 불러오는 중...</div>
                     </div>
 
                     <!-- 협력업체 상세 정보 모달 -->
@@ -490,61 +696,108 @@ export const init = (container) => {
                 break;
             case 'equipment': 
                 html = `
-                    <div class="module-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <div style="font-size: 13px; color: #2980b9; font-weight: bold; flex: 1;">
-                                <span id="equipmentSelectedPath">현재 위치: 최상위</span>
-                            </div>
-                            <div style="display: flex; gap: 5px;">
-                                <button id="createEquipmentGroupBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2c3e50; padding: 6px 10px; font-size: 12px;">
-                                    <span class="material-symbols-outlined" style="font-size: 16px;">create_new_folder</span> 폴더생성
-                                </button>
-                                <button id="createEquipmentBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2980b9; padding: 6px 10px; font-size: 12px;">
-                                    <span class="material-symbols-outlined" style="font-size: 16px;">note_add</span> 설비생성
-                                </button>
-                            </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <div style="font-size: 13px; color: #2980b9; font-weight: bold; flex: 1;">
+                            <span id="equipmentSelectedPath">현재 위치: 최상위</span>
                         </div>
-                        <div id="equipmentMoveBanner" style="display: none; background: #ffeaa7; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-size: 13px; color: #d35400; align-items: center; justify-content: space-between;">
-                            <span>이동 모드: 목적지 폴더를 클릭하세요.</span>
-                            <div style="display: flex; gap: 5px;">
-                                <button id="equipmentMoveRootBtn" style="background: #27ae60; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">최상위로</button>
-                                <button id="equipmentMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
-                            </div>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="createEquipmentGroupBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2c3e50; padding: 6px 10px; font-size: 12px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">create_new_folder</span> 폴더생성
+                            </button>
+                            <button id="createEquipmentBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2980b9; padding: 6px 10px; font-size: 12px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">note_add</span> 설비생성
+                            </button>
                         </div>
-                        <div id="equipmentContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
+                    </div>
+                    <div id="equipmentMoveBanner" style="display: none; background: #ffeaa7; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-size: 13px; color: #d35400; align-items: center; justify-content: space-between;">
+                        <span>이동 모드: 목적지 폴더를 클릭하세요.</span>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="equipmentMoveRootBtn" style="background: #27ae60; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">최상위로</button>
+                            <button id="equipmentMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
                         </div>
+                    </div>
+                    <div id="equipmentContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
                     </div>
                 `;
                 break;
             case 'fixture': 
                 html = `
-                    <div class="module-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <div style="font-size: 13px; color: #2980b9; font-weight: bold; flex: 1;">
-                                <span id="fixtureSelectedPath">현재 위치: 최상위</span>
-                            </div>
-                            <div style="display: flex; gap: 5px;">
-                                <button id="createFixtureGroupBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2c3e50; padding: 6px 10px; font-size: 12px;">
-                                    <span class="material-symbols-outlined" style="font-size: 16px;">create_new_folder</span> 폴더생성
-                                </button>
-                                <button id="createFixtureBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2980b9; padding: 6px 10px; font-size: 12px;">
-                                    <span class="material-symbols-outlined" style="font-size: 16px;">note_add</span> 기구생성
-                                </button>
-                            </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <div style="font-size: 13px; color: #2980b9; font-weight: bold; flex: 1;">
+                            <span id="fixtureSelectedPath">현재 위치: 최상위</span>
                         </div>
-                        <div id="fixtureMoveBanner" style="display: none; background: #ffeaa7; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-size: 13px; color: #d35400; align-items: center; justify-content: space-between;">
-                            <span>이동 모드: 목적지 폴더를 클릭하세요.</span>
-                            <div style="display: flex; gap: 5px;">
-                                <button id="fixtureMoveRootBtn" style="background: #27ae60; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">최상위로</button>
-                                <button id="fixtureMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
-                            </div>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="createFixtureGroupBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2c3e50; padding: 6px 10px; font-size: 12px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">create_new_folder</span> 폴더생성
+                            </button>
+                            <button id="createFixtureBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2980b9; padding: 6px 10px; font-size: 12px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">note_add</span> 기구생성
+                            </button>
                         </div>
-                        <div id="fixtureContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
+                    </div>
+                    <div id="fixtureMoveBanner" style="display: none; background: #ffeaa7; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-size: 13px; color: #d35400; align-items: center; justify-content: space-between;">
+                        <span>이동 모드: 목적지 폴더를 클릭하세요.</span>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="fixtureMoveRootBtn" style="background: #27ae60; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">최상위로</button>
+                            <button id="fixtureMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
                         </div>
+                    </div>
+                    <div id="fixtureContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
                     </div>
                 `;
                 break;
-            case 'zone': html = '<div class="module-card"><div style="text-align: center; padding: 20px; color: #7f8c8d;">기능 준비 중입니다.</div></div>'; break;
+            case 'zone': 
+                html = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <div style="font-size: 13px; color: #2980b9; font-weight: bold; flex: 1;">
+                            <span id="zoneSelectedPath">현재 위치: 최상위</span>
+                        </div>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="createZoneGroupBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2c3e50; padding: 6px 10px; font-size: 12px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">create_new_folder</span> 폴더생성
+                            </button>
+                            <button id="createZoneBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2980b9; padding: 6px 10px; font-size: 12px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">note_add</span> 구역생성
+                            </button>
+                        </div>
+                    </div>
+                    <div id="zoneMoveBanner" style="display: none; background: #ffeaa7; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-size: 13px; color: #d35400; align-items: center; justify-content: space-between;">
+                        <span>이동 모드: 목적지 폴더를 클릭하세요.</span>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="zoneMoveRootBtn" style="background: #27ae60; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">최상위로</button>
+                            <button id="zoneMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
+                        </div>
+                    </div>
+                    <div id="zoneContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
+                    </div>
+                `;
+                break;
+            case 'info': 
+                html = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <div style="font-size: 13px; color: #2980b9; font-weight: bold; flex: 1;">
+                            <span id="infoSelectedPath">현재 위치: 최상위</span>
+                        </div>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="createInfoGroupBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2c3e50; padding: 6px 10px; font-size: 12px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">create_new_folder</span> 폴더생성
+                            </button>
+                            <button id="createInfoBtn" style="display: flex; align-items: center; gap: 2px; background-color: #2980b9; padding: 6px 10px; font-size: 12px;">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">note_add</span> 정보생성
+                            </button>
+                        </div>
+                    </div>
+                    <div id="infoMoveBanner" style="display: none; background: #ffeaa7; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-size: 13px; color: #d35400; align-items: center; justify-content: space-between;">
+                        <span>이동 모드: 목적지 폴더를 클릭하세요.</span>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="infoMoveRootBtn" style="background: #27ae60; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">최상위로</button>
+                            <button id="infoMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
+                        </div>
+                    </div>
+                    <div id="infoContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
+                    </div>
+                `;
+                break;
         }
         facilityContent.innerHTML = html;
 
@@ -552,11 +805,12 @@ export const init = (container) => {
             loadPartners();
         }
         
-        if (tabId === 'equipment' || tabId === 'fixture') {
+        if (['equipment', 'fixture', 'zone', 'info'].includes(tabId)) {
             const prefix = tabId;
+            const capPrefix = prefix.charAt(0).toUpperCase() + prefix.slice(1);
             
             // 폴더 생성
-            document.getElementById(`create${prefix === 'equipment' ? 'Equipment' : 'Fixture'}GroupBtn`).addEventListener('click', () => {
+            document.getElementById(`create${capPrefix}GroupBtn`).addEventListener('click', () => {
                 const name = prompt('새 폴더 이름을 입력하세요:');
                 if (name && name.trim()) {
                     treeData.push({ id: Date.now().toString(), parentId: selectedFolderId, name: name.trim(), type: 'folder' });
@@ -564,13 +818,29 @@ export const init = (container) => {
                 }
             });
 
-            // 파일(설비/비품) 생성
-            document.getElementById(`create${prefix === 'equipment' ? 'Equipment' : 'Fixture'}Btn`).addEventListener('click', () => {
-                const name = prompt(`새 ${prefix === 'equipment' ? '설비' : '기구/비품'} 이름을 입력하세요:`);
-                if (name && name.trim()) {
-                    treeData.push({ id: Date.now().toString(), parentId: selectedFolderId, name: name.trim(), type: 'file' });
-                    saveTreeData().then(() => renderTreeUI(prefix));
-                }
+            // 항목 생성
+            document.getElementById(`create${capPrefix}Btn`).addEventListener('click', () => {
+                let typeName = '항목';
+                if (prefix === 'equipment') typeName = '설비';
+                else if (prefix === 'fixture') typeName = '기구/비품';
+                else if (prefix === 'zone') typeName = '구역';
+                else if (prefix === 'info') typeName = '정보';
+
+                // 모달 폼 초기화 후 띄우기 (id를 비워두어 새 항목임을 표시)
+                document.getElementById('detailItemId').value = '';
+                document.getElementById('fileDetailModalTitle').textContent = `새 ${typeName} 생성`;
+                document.getElementById('detailItemName').value = '';
+                
+                tempPhotos = [];
+                renderPhotoPreviews();
+                document.getElementById('detailPhotoInput').value = '';
+                document.getElementById('detailPurchaseDate').value = '';
+                document.getElementById('detailManager').value = '';
+                document.getElementById('detailMemo').value = '';
+                
+                renderItemRecords({});
+
+                document.getElementById('fileDetailModal').style.display = 'flex';
             });
 
             // 이동 모드 시 최상위로 이동 버튼

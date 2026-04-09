@@ -1,4 +1,4 @@
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, auth, escapeHtml } from "../../js/main.js";
 
 let unsubscribePlaza = null;
@@ -11,31 +11,60 @@ export const cleanup = () => {
     }
 };
 
-export const render = (container) => {
-    const bId = localStorage.getItem('selectedBuildingId');
-    const bName = localStorage.getItem('selectedBuildingName') || '전체 건물';
-    
-    let defaultPlazaHtml = '';
-    if (bId) {
-        defaultPlazaHtml = `
-            <div id="defaultPlazaItem" class="plaza-list-item" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; background: #fff; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 15px; margin-bottom: 15px; transition: background 0.2s;" onmouseover="this.style.background='#f4f6f8'" onmouseout="this.style.background='#fff'">
-                <div style="background: #e8f4f8; color: #2980b9; width: 50px; height: 50px; border-radius: 12px; display: flex; justify-content: center; align-items: center; flex-shrink: 0;">
-                    <span class="material-symbols-outlined" style="font-size: 28px;">domain</span>
-                </div>
-                <div style="flex: 1;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
-                        <h4 style="margin: 0; color: #2c3e50; font-size: 15px;">${escapeHtml(bName)} 공식 광장</h4>
-                        <span style="background: #27ae60; color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px;">기본</span>
+export const render = async (container) => {
+    container.innerHTML = '<div style="text-align: center; padding: 20px; color: #7f8c8d;">광장 목록을 불러오는 중...</div>';
+
+    let userRole = 'tenant';
+    let userBuildingId = null;
+    if (auth.currentUser) {
+        const uDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        if (uDoc.exists()) {
+            userRole = uDoc.data().role;
+            userBuildingId = uDoc.data().buildingId;
+        }
+    }
+
+    let buildings = [];
+    try {
+        const q = query(collection(db, "buildings"), orderBy("createdAt", "desc"));
+        const snap = await getDocs(q);
+        snap.forEach(docSnap => {
+            const b = docSnap.data();
+            if (['architect', 'mc_header', 'mc_front', 'admin', 'staff', 'mega_admin', 'mega_staff'].includes(userRole)) {
+                buildings.push({ id: docSnap.id, name: b.name });
+            } else {
+                if (docSnap.id === userBuildingId) {
+                    buildings.push({ id: docSnap.id, name: b.name });
+                }
+            }
+        });
+    } catch (e) {
+        console.error("광장 목록 로드 실패:", e);
+    }
+
+    let listHtml = '';
+    if (buildings.length > 0) {
+        buildings.forEach(b => {
+            listHtml += `
+                <div class="plaza-list-item" data-id="${b.id}" data-name="${escapeHtml(b.name)}" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; background: #fff; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 15px; margin-bottom: 10px; transition: background 0.2s;" onmouseover="this.style.background='#f4f6f8'" onmouseout="this.style.background='#fff'">
+                    <div style="background: #e8f4f8; color: #2980b9; width: 50px; height: 50px; border-radius: 12px; display: flex; justify-content: center; align-items: center; flex-shrink: 0;">
+                        <span class="material-symbols-outlined" style="font-size: 28px;">domain</span>
                     </div>
-                    <div style="font-size: 12px; color: #7f8c8d;">입주민과 관리자가 소통하는 건물 전용 커뮤니티입니다.</div>
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                            <h4 style="margin: 0; color: #2c3e50; font-size: 15px;">${escapeHtml(b.name)} 공식 광장</h4>
+                        </div>
+                        <div style="font-size: 12px; color: #7f8c8d;">입주민과 관리자가 소통하는 건물 전용 커뮤니티입니다.</div>
+                    </div>
+                    <span class="material-symbols-outlined" style="color: #bdc3c7;">chevron_right</span>
                 </div>
-                <span class="material-symbols-outlined" style="color: #bdc3c7;">chevron_right</span>
-            </div>
-        `;
+            `;
+        });
     } else {
-        defaultPlazaHtml = `
-            <div style="text-align: center; padding: 20px; color: #e74c3c; background: #fdf2e9; border-radius: 8px; border: 1px solid #f8c471; margin-bottom: 15px; font-size: 13px;">
-                선택된 건물이 없어 기본 건물 광장을 표시할 수 없습니다.<br>사이드바에서 건물을 선택해주세요.
+        listHtml = `
+            <div style="text-align: center; padding: 30px 20px; color: #7f8c8d; background: #f8f9fa; border-radius: 8px; border: 1px dashed #ccc;">
+                <span class="material-symbols-outlined" style="font-size: 32px; color: #bdc3c7; margin-bottom: 10px;">diversity_3</span><br>
+                가입된 광장이 없습니다.
             </div>
         `;
     }
@@ -49,21 +78,13 @@ export const render = (container) => {
         </div>
         
         <div style="display: flex; flex-direction: column;">
-            ${defaultPlazaHtml}
-            
-            <div style="text-align: center; padding: 30px 20px; color: #7f8c8d; background: #f8f9fa; border-radius: 8px; border: 1px dashed #ccc;">
-                <span class="material-symbols-outlined" style="font-size: 32px; color: #bdc3c7; margin-bottom: 10px;">diversity_3</span><br>
-                가입된 다른 광장이 없습니다.<br><span style="font-size: 12px;">관심사에 맞는 새로운 소모임 광장을 만들어보세요.</span>
-            </div>
+            ${listHtml}
         </div>
     `;
 
-    if (bId) {
-        const plazaItem = document.getElementById('defaultPlazaItem');
-        if (plazaItem) {
-            plazaItem.addEventListener('click', () => openPlazaFeed(container, bId, bName));
-        }
-    }
+    container.querySelectorAll('.plaza-list-item').forEach(item => {
+        item.addEventListener('click', () => openPlazaFeed(container, item.dataset.id, item.dataset.name));
+    });
 };
 
 const openPlazaFeed = (container, bId, bName) => {
@@ -134,10 +155,26 @@ const openPlazaFeed = (container, bId, bName) => {
 
         const btn = document.getElementById('savePostBtn');
         btn.disabled = true; btn.textContent = '등록 중...';
+        
+        // 1공간 1프로필 정책 적용 (광장 ID별 고정)
+        let authorName = localStorage.getItem('lockedProfile_' + currentPlazaBuildingId);
+        const defaultName = auth.currentUser.displayName || auth.currentUser.email.split('@')[0];
+        const activeProfile = localStorage.getItem('activeProfileName') || defaultName;
+
+        if (!authorName) {
+            authorName = activeProfile;
+            localStorage.setItem('lockedProfile_' + currentPlazaBuildingId, authorName);
+        } else if (activeProfile !== authorName) {
+            if (confirm(`안내: 이 광장에서는 기존에 '${authorName}' 프로필을 사용하셨습니다.\n\n새로 선택하신 '${activeProfile}' 프로필로 변경하여 활동하시겠습니까?\n(기존에 작성한 글의 닉네임은 소급 변경되지 않습니다.)`)) {
+                authorName = activeProfile;
+                localStorage.setItem('lockedProfile_' + currentPlazaBuildingId, authorName);
+            }
+        }
+
         try {
             await addDoc(collection(db, "buildings", currentPlazaBuildingId, "plaza_posts"), {
                 authorUid: auth.currentUser.uid, authorEmail: auth.currentUser.email,
-                authorName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0],
+                authorName: authorName,
                 category: category, content: contentVal, createdAt: serverTimestamp(), likes: 0, commentCount: 0
             });
             document.getElementById('postModal').style.display = 'none';
