@@ -91,12 +91,8 @@ export const init = (container) => {
         const headerNameEl = document.getElementById('currentBuildingName');
         if (headerNameEl) headerNameEl.textContent = bName;
 
-        // 사용자에게 알림 후 대시보드로 이동
-        const msg = bId ? "'" + bName + "'(으)로 건물이 선택되었습니다." : "전체 건물 통합 보기 모드로 전환되었습니다.";
-        
-        // UI의 즉각적인 피드백을 위해 0.1초 후 alert 및 이동
+        // UI의 즉각적인 피드백을 위해 0.1초 후 이동
         setTimeout(() => {
-            alert(msg);
             // 하단 탭의 대시보드 버튼을 프로그래밍 방식으로 클릭하여 화면 전환
             const dashboardTab = document.querySelector('.tab-item[data-module="dashboard"]');
             if (dashboardTab) dashboardTab.click();

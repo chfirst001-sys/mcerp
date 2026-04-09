@@ -110,6 +110,14 @@ const renderMeterView = () => {
         if (!roomData) {
             roomData = { prev: prev1Data.current !== undefined ? prev1Data.current : '', current: '', usage: '', note: '' };
             currentData[currentMeterTab][room] = roomData;
+        } else {
+            // 현재 달의 '이전 지침'이 비어있는데, 이전 달의 '당월 지침' 데이터가 있다면 자동으로 채움
+            if ((roomData.prev === '' || roomData.prev === undefined) && prev1Data.current !== undefined && prev1Data.current !== '') {
+                roomData.prev = prev1Data.current;
+                if (roomData.current !== '') {
+                    roomData.usage = Number(roomData.current) - Number(roomData.prev);
+                }
+            }
         }
 
         const { prev: rPrev, current: rCurr, usage: rUsage, note: rNote = '' } = roomData;
