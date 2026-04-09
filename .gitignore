@@ -1,14 +1,1 @@
-# 의존성 패키지
-node_modules/
-
-# Vite 빌드 결과물
-dist/
-
-# 환경 변수 및 로컬 설정 파일
-.env
-.env.local
-gemini.md
-
-# 운영체제 시스템 파일
-.DS_Store
-Thumbs.db
+**nard**

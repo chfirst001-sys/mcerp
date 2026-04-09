@@ -1,11 +1,11 @@
 {
-  "name": "MC지기 - 건물 관리 시스템",
-  "short_name": "MC지기",
+  "name": "NardTeo - 나드터",
+  "short_name": "NardTeo",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f6f8",
   "theme_color": "#2c3e50",
-  "description": "건물 및 부동산 자산 관리 ERP 시스템",
+  "description": "만물의 근원, 데이터를 이루는 최소 단위(Nard)들이 모이는 공간(터) - 올인원 관리 시스템",
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
