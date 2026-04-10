@@ -32,7 +32,7 @@ self.addEventListener('activate', event => {
     );
 });
 
-// 네트워크 요청 가로채기 (캐시 우선, 없으면 네트워크 요청)
+// 네트워크 요청 가로채기 (네트워크 우선, 실패 시 캐시(오프라인) 사용)
 self.addEventListener('fetch', event => {
     // Firebase 및 외부 API(DB 등) 요청은 서비스 워커 캐시를 타지 않도록 예외 처리
     const url = event.request.url;
@@ -41,8 +41,15 @@ self.addEventListener('fetch', event => {
     }
 
     event.respondWith(
-        caches.match(event.request).then(response => {
-            return response || fetch(event.request);
+        fetch(event.request).then(networkResponse => {
+            // 네트워크 연결이 정상이면 서버에서 최신 파일을 가져오고, 나중의 오프라인을 대비해 캐시도 최신화
+            return caches.open(CACHE_NAME).then(cache => {
+                cache.put(event.request, networkResponse.clone());
+                return networkResponse;
+            });
+        }).catch(() => {
+            // 오프라인 상태이거나 서버 접근 불가 시 기존에 백업된 캐시 파일 제공
+            return caches.match(event.request);
         })
     );
 });
