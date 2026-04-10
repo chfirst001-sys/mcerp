@@ -5,8 +5,7 @@ const urlsToCache = [
     '/',
     '/index.html',
     '/css/style.css',
-    '/js/main.js',
-    '/js/eventBus.js'
+    '/js/main.js'
 ];
 
 // 서비스 워커 설치 및 캐싱
@@ -35,6 +34,12 @@ self.addEventListener('activate', event => {
 
 // 네트워크 요청 가로채기 (캐시 우선, 없으면 네트워크 요청)
 self.addEventListener('fetch', event => {
+    // Firebase 및 외부 API(DB 등) 요청은 서비스 워커 캐시를 타지 않도록 예외 처리
+    const url = event.request.url;
+    if (url.includes('firestore.googleapis.com') || url.includes('firebase') || url.includes('gstatic.com')) {
+        return; // 이 요청들은 가로채지 않고 브라우저가 직접 처리하도록 넘김
+    }
+
     event.respondWith(
         caches.match(event.request).then(response => {
             return response || fetch(event.request);

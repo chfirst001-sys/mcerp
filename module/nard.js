@@ -1,15 +1,21 @@
 import { doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, auth, escapeHtml } from "../js/main.js";
+import CryptoJS from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm";
 
 let nardData = [];
 let collapsedStates = {}; // id: boolean (true면 접힘)
 let contentExpandedStates = {}; // id: boolean (true면 내용 펼침)
+let nardSecretKey = null;
+let hasDecryptionError = false;
 
 export const init = (container) => {
     if (!auth.currentUser) {
         container.innerHTML = `<div style="text-align: center; padding: 40px; color: #e74c3c;">로그인이 필요합니다.</div>`;
         return;
     }
+
+    // 사용자의 계정 고유 식별자(UID)를 암호화 키로 자동 지정하여 사용자 입력을 생략
+    nardSecretKey = auth.currentUser.uid;
 
     container.innerHTML = `
         <style>
@@ -49,7 +55,31 @@ export const init = (container) => {
             const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
             if (userDoc.exists()) {
                 // 기존 메모 데이터와의 호환성 유지
-                nardData = userDoc.data().nardTree || userDoc.data().memoTree || [];
+                const rawData = userDoc.data().nardTree || userDoc.data().memoTree || [];
+                hasDecryptionError = false;
+                
+                nardData = rawData.map(item => {
+                    let decryptedTitle = item.title;
+                    let decryptedContent = item.content;
+                    
+                    if (item.isEncrypted) {
+                        try {
+                            const titleBytes = CryptoJS.AES.decrypt(item.title, nardSecretKey);
+                            decryptedTitle = titleBytes.toString(CryptoJS.enc.Utf8);
+                            if (!decryptedTitle) throw new Error("Decryption failed");
+                            
+                            if (item.content) {
+                                const contentBytes = CryptoJS.AES.decrypt(item.content, nardSecretKey);
+                                decryptedContent = contentBytes.toString(CryptoJS.enc.Utf8);
+                            }
+                        } catch (e) {
+                            hasDecryptionError = true;
+                            decryptedTitle = "🔒 복호화 실패";
+                            decryptedContent = "비밀번호가 다릅니다. 데이터를 안전하게 보호하기 위해 읽기 전용으로 표시됩니다.";
+                        }
+                    }
+                    return { ...item, title: decryptedTitle, content: decryptedContent };
+                });
             }
             renderTree();
         } catch (error) {
@@ -59,8 +89,20 @@ export const init = (container) => {
     };
 
     const saveNards = async () => {
+        if (hasDecryptionError) {
+            alert("복호화에 실패한 항목이 있어 데이터 보호를 위해 저장이 차단되었습니다.\n올바른 비밀번호로 다시 로그인(새로고침)해주세요.");
+            return;
+        }
         try {
-            await updateDoc(doc(db, "users", auth.currentUser.uid), { nardTree: nardData });
+            const encryptedData = nardData.map(item => {
+                return {
+                    ...item,
+                    title: CryptoJS.AES.encrypt(item.title || '', nardSecretKey).toString(),
+                    content: item.content ? CryptoJS.AES.encrypt(item.content, nardSecretKey).toString() : '',
+                    isEncrypted: true
+                };
+            });
+            await updateDoc(doc(db, "users", auth.currentUser.uid), { nardTree: encryptedData });
         } catch (error) {
             console.error("나드 저장 실패:", error);
             alert("저장 중 오류가 발생했습니다.");
@@ -91,7 +133,7 @@ export const init = (container) => {
                 html += `
                     <li style="margin: 6px 0; position: relative;">
                         <div style="display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 8px; background: #fff; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); width: fit-content; transition: all 0.3s ease;" onmouseover="this.style.borderColor='#bdc3c7'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.08)';" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';">
-                            <div style="display: flex; align-items: flex-start; gap: 8px; overflow: hidden; width: 150px;">
+                            <div style="display: flex; align-items: flex-start; gap: 8px; overflow: hidden; width: 100px;">
                                 <button class="content-toggle-btn" data-id="${item.id}" style="background: none; border: none; padding: 0; cursor: ${item.content ? 'pointer' : 'default'}; color: #2980b9; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0; transition: background 0.2s;" ${item.content ? `onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'" title="내용 펼치기/접기"` : ''}>
                                     <span class="material-symbols-outlined" style="font-size: ${iconSize}; transition: transform 0.2s;">${leftIcon}</span>
                                 </button>
