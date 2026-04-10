@@ -122,6 +122,24 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
                 }
             });
         }
+
+        // 광장(커뮤니티) 안 읽은 새 게시물 확인 로직
+        let unreadCount = 0;
+        let latestUnreadPost = null;
+        try {
+            const readPosts = JSON.parse(localStorage.getItem('readPlazaPosts_' + buildingId) || '[]');
+            const postsQ = query(collection(db, "buildings", buildingId, "plaza_posts"), orderBy("createdAt", "desc"));
+            const postsSnap = await getDocs(postsQ);
+            
+            postsSnap.forEach(postDoc => {
+                if (!readPosts.includes(postDoc.id)) {
+                    unreadCount++;
+                    if (!latestUnreadPost) latestUnreadPost = { id: postDoc.id, ...postDoc.data() };
+                }
+            });
+        } catch(e) {
+            console.error("광장 새 게시물 로드 실패:", e);
+        }
         
         container.innerHTML = `
             <div style="display: flex; gap: 10px; margin-bottom: 20px;">
@@ -139,6 +157,21 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
                     <div style="font-size: 12px; color: #e74c3c; margin-top: 5px;">${unpaidAmount.toLocaleString()}원</div>
                 </div>
             </div>
+
+            ${unreadCount > 0 ? `
+                <div style="background: #e8f4f8; border-radius: 8px; padding: 12px 15px; border-left: 4px solid #2980b9; display: flex; align-items: center; justify-content: space-between; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05);" onclick="document.querySelector('.tab-item[data-module=\\'plaza\\']').click();">
+                    <div style="flex: 1; overflow: hidden;">
+                        <div style="font-size: 12px; color: #2980b9; font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                            <span class="material-symbols-outlined" style="font-size: 16px;">mark_chat_unread</span>
+                            새로운 광장 소식 (${unreadCount}개)
+                        </div>
+                        <div style="font-size: 13px; color: #34495e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            <strong style="color: #2c3e50;">${escapeHtml(latestUnreadPost.authorName || (latestUnreadPost.authorEmail ? latestUnreadPost.authorEmail.split('@')[0] : '익명'))}:</strong> ${escapeHtml(latestUnreadPost.content || '')}
+                        </div>
+                    </div>
+                    <span class="material-symbols-outlined" style="color: #95a5a6;">chevron_right</span>
+                </div>
+            ` : ''}
         `;
     } catch (error) {
         console.error("대시보드 로드 실패:", error);

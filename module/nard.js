@@ -183,6 +183,9 @@ export const init = (container) => {
                 });
             }
 
+            // 모든 나드를 기본적으로 접힌 상태로 초기화 (최상위 루트만 보이도록)
+            nardData.forEach(m => collapsedStates[m.id] = true);
+
             // 외부(다른 탭)에서 즐겨찾기를 눌러 나드 탭으로 넘어왔을 때 이동 및 하이라이트 처리
             const highlightId = sessionStorage.getItem('targetHighlightNardId');
             if (highlightId) {
