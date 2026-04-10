@@ -414,6 +414,83 @@ export const init = (container) => {
         }
     };
 
+    // --- Nard 연동: 현재 서브탭의 트리 데이터를 나드로 동기화 ---
+    const syncToNard = async () => {
+        if (!auth.currentUser) return;
+        const bId = localStorage.getItem('selectedBuildingId');
+        if (!bId || !currentTreeType) return;
+
+        try {
+            const userRef = doc(db, "users", auth.currentUser.uid);
+            const userDoc = await getDoc(userRef);
+            if (!userDoc.exists()) return;
+
+            let nardTree = userDoc.data().nardTree || [];
+
+            // 1. 기본 루트(건물, 시설관리) 보장
+            const bldgNardId = `nard_bldg_${bId}`;
+            const facNardId = `nard_fac_${bId}`;
+            
+            if (!nardTree.some(n => n.id === bldgNardId)) {
+                const bDoc = await getDoc(doc(db, "buildings", bId));
+                const bName = bDoc.exists() ? (bDoc.data().name || bDoc.data().buildingName || '건물') : '건물';
+                nardTree.push({ id: bldgNardId, parentId: 'nard_shared_root', title: bName, content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
+            }
+            if (!nardTree.some(n => n.id === facNardId)) {
+                nardTree.push({ id: facNardId, parentId: bldgNardId, title: '시설관리', content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
+            }
+
+            // 2. 현재 서브탭 루트 보장
+            const prefix = currentTreeType.replace('Tree', ''); // equipment, fixture, zone, info
+            const tabNames = { equipment: '설비시설', fixture: '기구/비품', zone: '건물구역', info: '건물정보' };
+            const subRootId = `nard_fac_sub_${prefix}_${bId}`;
+            
+            if (!nardTree.some(n => n.id === subRootId)) {
+                nardTree.push({ id: subRootId, parentId: facNardId, title: tabNames[prefix], content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
+            }
+
+            // 3. 삭제된 항목을 Nard 트리에서 제거
+            const prefixNardId = `nard_fac_item_${prefix}_`;
+            const validItemIds = new Set(treeData.map(i => `${prefixNardId}${i.id}`));
+            
+            nardTree = nardTree.filter(n => {
+                if (n.id.startsWith(prefixNardId)) return validItemIds.has(n.id);
+                return true;
+            });
+
+            // 4. treeData 생성 및 수정 내용 동기화
+            treeData.forEach(item => {
+                const nardId = `${prefixNardId}${item.id}`;
+                const parentId = item.parentId ? `${prefixNardId}${item.parentId}` : subRootId;
+                
+                let contentStr = '';
+                if (item.type === 'file') {
+                    contentStr += `[${tabNames[prefix]} 상세 정보]\n`;
+                    if (item.purchaseDate) contentStr += `- 등록일자: ${item.purchaseDate}\n`;
+                    if (item.manager) contentStr += `- 관리자: ${item.manager}\n`;
+                    if (item.memo) contentStr += `- 메모: ${item.memo}\n\n`;
+                    
+                    if (item.records && item.records.length > 0) {
+                        contentStr += `[기록 목록]\n`;
+                        const sortedRecs = [...item.records].sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+                        sortedRecs.forEach(r => { contentStr += `* ${r.date} | ${r.title} (작성자: ${r.author})\n  ${r.memo}\n\n`; });
+                    }
+                }
+
+                const existingIdx = nardTree.findIndex(n => n.id === nardId);
+                if (existingIdx >= 0) {
+                    nardTree[existingIdx].title = item.name; nardTree[existingIdx].parentId = parentId; nardTree[existingIdx].content = contentStr.trim(); nardTree[existingIdx].updatedAt = Date.now();
+                } else {
+                    nardTree.push({ id: nardId, parentId: parentId, title: item.name, content: contentStr.trim(), createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
+                }
+            });
+
+            await updateDoc(userRef, { nardTree });
+        } catch (err) {
+            console.error("Nard 동기화 실패:", err);
+        }
+    };
+
     const saveTreeData = async () => {
         const bId = localStorage.getItem('selectedBuildingId');
         if (!bId) return;
@@ -421,6 +498,7 @@ export const init = (container) => {
             await updateDoc(doc(db, "buildings", bId), {
                 [currentTreeType]: treeData
             });
+            await syncToNard(); // 시설관리 변경사항을 나드 트리에 동기화
         } catch(e) {
             console.error(e);
             alert("저장 중 오류가 발생했습니다.");

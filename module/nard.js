@@ -183,45 +183,6 @@ export const init = (container) => {
                 });
             }
 
-            // 건물별 폴더, 시설관리, 광장 폴더 자동 생성 (공유나드 하위)
-            let isModified = false;
-            try {
-                const bldgsSnapshot = await getDocs(collection(db, "buildings"));
-                bldgsSnapshot.forEach(bDoc => {
-                    const bData = bDoc.data();
-                    const bName = bData.name || bData.buildingName || '이름 없는 건물';
-                    const bldgId = bDoc.id;
-
-                    const bldgNardId = `nard_bldg_${bldgId}`;
-                    if (!nardData.some(m => m.id === bldgNardId)) {
-                        nardData.push({ id: bldgNardId, parentId: 'nard_shared_root', title: bName, content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
-                        isModified = true;
-                    }
-
-                    const facNardId = `nard_fac_${bldgId}`;
-                    if (!nardData.some(m => m.id === facNardId)) {
-                        nardData.push({ id: facNardId, parentId: bldgNardId, title: '시설관리', content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
-                        isModified = true;
-                    }
-
-                    const plazaNardId = `nard_plaza_${bldgId}`;
-                    if (!nardData.some(m => m.id === plazaNardId)) {
-                        nardData.push({ id: plazaNardId, parentId: bldgNardId, title: '광장', content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
-                        isModified = true;
-                    }
-                });
-            } catch (err) {
-                console.warn("건물/시설/광장 폴더 동적 생성 중 오류 (건너뜀):", err);
-            }
-
-            if (isModified && nardData.length > 0) {
-                const encryptedData = nardData.map(item => {
-                    if (isFixedNode(item.id) || isSharedDescendant(item.id)) return { ...item, isEncrypted: false };
-                    return { ...item, title: CryptoJS.AES.encrypt(item.title || '', nardSecretKey).toString(), content: item.content ? CryptoJS.AES.encrypt(item.content, nardSecretKey).toString() : '', isEncrypted: true };
-                });
-                updateDoc(doc(db, "users", auth.currentUser.uid), { nardTree: encryptedData }).catch(e => console.error("초기 폴더 저장 실패", e));
-            }
-
             // 외부(다른 탭)에서 즐겨찾기를 눌러 나드 탭으로 넘어왔을 때 이동 및 하이라이트 처리
             const highlightId = sessionStorage.getItem('targetHighlightNardId');
             if (highlightId) {
@@ -364,12 +325,14 @@ export const init = (container) => {
                     }
                 } else {
                     if (fixedNode) {
+                        const isRootNode = item.id === 'nard_quick_root' || item.id === 'nard_shared_root';
                         actionArea = `
                             <div class="action-buttons-wrap" id="actions-${item.id}" style="display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; max-width: 0; opacity: 0; transition: max-width 0.3s ease, opacity 0.3s ease; scrollbar-width: none; -ms-overflow-style: none;">
                                 <div style="display: flex; align-items: center; gap: 2px; padding-right: 4px; width: max-content;">
                                     <button class="fav-btn" data-id="${item.id}" style="background: transparent; color: ${item.isFavorite ? '#f1c40f' : '#7f8c8d'}; border: none; padding: 4px; border-radius: 4px; cursor: pointer; display: flex; align-items: center;" title="즐겨찾기" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='transparent'"><span class="material-symbols-outlined" style="font-size: 16px; ${item.isFavorite ? 'font-variation-settings: \'FILL\' 1;' : ''}">star</span></button>
                                     <div style="width: 1px; height: 14px; background: #e0e0e0; margin: 0 4px;"></div>
                                     <button class="add-sub-btn" data-id="${item.id}" style="background: transparent; color: #2980b9; border: none; padding: 4px; border-radius: 4px; cursor: pointer; display: flex; align-items: center;" title="하위 나드 추가" onmouseover="this.style.background='#e8f4f8'" onmouseout="this.style.background='transparent'"><span class="material-symbols-outlined" style="font-size: 16px;">add</span></button>
+                                    ${!isRootNode ? `<button class="del-btn" data-id="${item.id}" style="background: transparent; color: #c0392b; border: none; padding: 4px; border-radius: 4px; cursor: pointer; display: flex; align-items: center;" title="삭제" onmouseover="this.style.background='#fadbd8'" onmouseout="this.style.background='transparent'"><span class="material-symbols-outlined" style="font-size: 16px;">delete</span></button>` : ''}
                                 </div>
                             </div>
                             <button class="more-options-btn" data-id="${item.id}" style="background: transparent; border: none; padding: 4px; border-radius: 50%; cursor: pointer; color: #7f8c8d; display: flex; align-items: center; justify-content: center; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='transparent'" title="작업 메뉴">
@@ -417,6 +380,10 @@ export const init = (container) => {
                     toggleButtonColor = '#8e44ad';
                 } else if (item.id.startsWith('nard_bldg_')) {
                     leftIcon = 'domain'; iconSize = '18px'; toggleButtonColor = '#34495e';
+                } else if (item.id.startsWith('nard_fac_sub_')) {
+                    leftIcon = 'folder'; iconSize = '18px'; toggleButtonColor = '#d35400';
+                } else if (item.id.startsWith('nard_fac_item_')) {
+                    leftIcon = 'article'; iconSize = '18px'; toggleButtonColor = '#8e44ad';
                 } else if (item.id.startsWith('nard_fac_')) {
                     leftIcon = 'handyman'; iconSize = '18px'; toggleButtonColor = '#e67e22';
                 } else if (item.id.startsWith('nard_plaza_')) {
