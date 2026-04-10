@@ -1,4 +1,4 @@
-const tabIds = ['friend', 'chat', 'community'];
+const tabIds = ['friend', 'chat', 'community', 'news'];
 let currentTabIndex = 0;
 let subTabButtons = null;
 let currentSubModule = null; // 현재 로드된 서브 모듈 인스턴스 보관용
@@ -10,6 +10,7 @@ export const init = (container) => {
             <button class="sub-tab-btn active" data-tab="friend">친구</button>
             <button class="sub-tab-btn" data-tab="chat">대화</button>
             <button class="sub-tab-btn" data-tab="community">광장</button>
+            <button class="sub-tab-btn" data-tab="news" style="color: #2980b9; font-weight: bold;">NEWS</button>
         </div>
 
         <!-- 하위 메뉴별 컨텐츠가 렌더링될 영역 -->
@@ -54,7 +55,7 @@ const loadSubModule = async (tabId) => {
     content.innerHTML = '<div style="text-align: center; padding: 20px; color: #7f8c8d;">모듈을 불러오는 중...</div>';
     
     try {
-        const APP_VERSION = "20240408"; // 캐시 무효화용 버전
+        const APP_VERSION = "20260410"; // 캐시 무효화용 버전
         const module = await import(`./plaza/${tabId}.js?v=${APP_VERSION}`);
         currentSubModule = module;
         module.render(content);

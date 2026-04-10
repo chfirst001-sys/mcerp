@@ -7,6 +7,7 @@ let collapsedStates = {}; // id: boolean (true면 접힘)
 let contentExpandedStates = {}; // id: boolean (true면 내용 펼침)
 let nardSecretKey = null;
 let hasDecryptionError = false;
+let currentEditIsFavorite = false;
 let isSelectingParent = false;
 let currentEditNardId = null;
 let currentNardMode = localStorage.getItem('nardDefaultMode') || 'tree';
@@ -15,8 +16,10 @@ let targetHighlightId = null; // 저장 및 이동 시 하이라이트할 나드
 
 // 하단 탭 재클릭 시 발동 (전체 접기)
 export const onReclick = () => {
-    Object.keys(collapsedStates).forEach(k => collapsedStates[k] = true);
-    Object.keys(contentExpandedStates).forEach(k => contentExpandedStates[k] = false);
+    nardData.forEach(item => {
+        collapsedStates[item.id] = true;
+        contentExpandedStates[item.id] = false;
+    });
     if (renderTreeRef) renderTreeRef();
 };
 
@@ -79,7 +82,8 @@ export const init = (container) => {
                 <button id="cancelNardBtn" style="background: none; border: none; color: #7f8c8d; cursor: pointer; display: flex; align-items: center; padding: 5px;"><span class="material-symbols-outlined">arrow_back</span></button>
                 <span id="nardEditTitle" style="font-size: 14px; font-weight: bold; color: #2c3e50;">새 나드</span>
                 <div style="display: flex; align-items: center;">
-                    <button id="selectLocationBtn" style="background: none; border: none; color: #f39c12; font-weight: bold; cursor: pointer; padding: 5px; margin-right: 15px; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 18px;">place</span>위치지정</button>
+                    <button id="editFavoriteBtn" style="background: none; border: none; color: #e0e0e0; cursor: pointer; padding: 5px; margin-right: 10px; display: flex; align-items: center; justify-content: center;" title="즐겨찾기"><span class="material-symbols-outlined" style="font-size: 24px;">star</span></button>
+                    <button id="selectLocationBtn" style="background: none; border: none; color: #f39c12; cursor: pointer; padding: 5px; margin-right: 15px; display: flex; align-items: center; justify-content: center;" title="위치지정"><span class="material-symbols-outlined" style="font-size: 24px;">place</span></button>
                     <button id="saveNardBtn" style="background: none; border: none; color: #2980b9; font-weight: bold; cursor: pointer; padding: 5px;">저장</button>
                 </div>
             </div>
@@ -145,6 +149,22 @@ export const init = (container) => {
                 });
             }
 
+            // 공유나드 강제 주입 (삭제 불가, 광장 공유용)
+            if (!nardData.some(m => m.id === 'nard_shared_root')) {
+                const quickIndex = nardData.findIndex(m => m.id === 'nard_quick_root');
+                const insertIdx = quickIndex >= 0 ? quickIndex + 1 : 0;
+                nardData.splice(insertIdx, 0, {
+                    id: 'nard_shared_root',
+                    parentId: null,
+                    title: '공유나드',
+                    content: '',
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    isEncrypted: false,
+                    isFavorite: false
+                });
+            }
+
             // 외부(다른 탭)에서 즐겨찾기를 눌러 나드 탭으로 넘어왔을 때 이동 및 하이라이트 처리
             const highlightId = sessionStorage.getItem('targetHighlightNardId');
             if (highlightId) {
@@ -168,7 +188,7 @@ export const init = (container) => {
         }
         try {
             const encryptedData = nardData.map(item => {
-                if (item.id === 'nard_quick_root') return { ...item, isEncrypted: false };
+                if (item.id === 'nard_quick_root' || item.id === 'nard_shared_root') return { ...item, isEncrypted: false };
                 return {
                     ...item,
                     title: CryptoJS.AES.encrypt(item.title || '', nardSecretKey).toString(),
@@ -214,7 +234,7 @@ export const init = (container) => {
         if (currentNardMode === 'memo' && !isSelectingParent) {
             // 메모(구글 Keep) 모드 렌더링
             let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; padding: 10px;">';
-            const memos = nardData.filter(m => m.id !== 'nard_quick_root').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+            const memos = nardData.filter(m => m.id !== 'nard_quick_root' && m.id !== 'nard_shared_root').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
             
             if (memos.length === 0) {
                 html += `<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #7f8c8d;">작성된 나드가 없습니다.</div>`;
@@ -262,7 +282,7 @@ export const init = (container) => {
                 const isCollapsed = collapsedStates[item.id];
                 const hasChildren = nardData.some(m => m.parentId === item.id);
                 
-                const isQuickRoot = item.id === 'nard_quick_root';
+                const isRootNode = item.id === 'nard_quick_root' || item.id === 'nard_shared_root';
                 let actionArea = '';
                 
                 if (isSelectingParent) {
@@ -286,7 +306,7 @@ export const init = (container) => {
                         `;
                     }
                 } else {
-                    if (isQuickRoot) {
+                    if (isRootNode) {
                         actionArea = `
                             <div class="action-buttons-wrap" id="actions-${item.id}" style="display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; max-width: 0; opacity: 0; transition: max-width 0.3s ease, opacity 0.3s ease; scrollbar-width: none; -ms-overflow-style: none;">
                                 <div style="display: flex; align-items: center; gap: 2px; padding-right: 4px; width: max-content;">
@@ -336,6 +356,10 @@ export const init = (container) => {
                 // 제목을 정확히 10글자로 제한 (나머지는 ...)
                 const shortTitle = item.title && item.title.length > 8 ? item.title.substring(0, 10) + '...' : (item.title || '');
 
+                let prefixIcon = '';
+                if (item.id === 'nard_quick_root') prefixIcon = `<span class="material-symbols-outlined" style="font-size: 18px; color: #f39c12; margin-right: 2px; flex-shrink: 0;">bolt</span>`;
+                else if (item.id === 'nard_shared_root') prefixIcon = `<span class="material-symbols-outlined" style="font-size: 18px; color: #8e44ad; margin-right: 2px; flex-shrink: 0;">share</span>`;
+
                 html += `
                     <li style="margin: 6px 0; position: relative;" id="nard-node-${item.id}" class="nard-drag-item" data-id="${item.id}">
                         <div style="display: flex; align-items: flex-start; gap: 8px; width: 100%;">
@@ -346,7 +370,7 @@ export const init = (container) => {
                                     </button>
                                     <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding-top: 2px; text-align: left; width: 100%;">
                                         <div class="nard-title-box" data-id="${item.id}" style="font-weight: ${depth === 0 ? 'bold' : 'normal'}; font-size: 14px; color: ${hasChildren ? '#2c3e50' : '#34495e'}; cursor: pointer; display: flex; align-items: center; justify-content: flex-start; text-align: left; gap: 4px; white-space: ${isExpanded ? 'normal' : 'nowrap'}; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; width: 100%;" title="클릭하여 하위 나드 열기/닫기">
-                                            ${escapeHtml(isExpanded ? (item.title || '') : shortTitle)}
+                                            ${prefixIcon}${escapeHtml(isExpanded ? (item.title || '') : shortTitle)}
                                         </div>
                                         ${item.content ? `
                                         <div class="nard-content-box" data-id="${item.id}" style="display: ${isExpanded ? 'block' : 'none'}; width: 100%; text-align: left !important; font-size: 13px; color: #333; margin-top: 8px; line-height: 1.5; max-height: none; white-space: pre-wrap; word-break: break-all; cursor: pointer; background: transparent; padding: 0; border: none;" title="클릭하여 내용 전체보기/수정">${escapeHtml(item.content)}</div>` : ''}
@@ -376,7 +400,7 @@ export const init = (container) => {
                 const id = itemEl.dataset.id;
                 
                 const startDragReady = () => {
-                    if (id === 'nard_quick_root') return; 
+                    if (id === 'nard_quick_root' || id === 'nard_shared_root') return; 
                     pressTimer = setTimeout(() => {
                         itemEl.setAttribute('draggable', 'true');
                         if (navigator.vibrate) navigator.vibrate(50);
@@ -399,7 +423,7 @@ export const init = (container) => {
 
                 itemEl.addEventListener('dragover', (e) => {
                     e.preventDefault(); e.stopPropagation();
-                    if (id === 'nard_quick_root') return;
+                    if (id === 'nard_quick_root' || id === 'nard_shared_root') return;
                     itemEl.style.borderTop = '2px solid #2980b9';
                 });
 
@@ -409,7 +433,7 @@ export const init = (container) => {
                     e.preventDefault(); e.stopPropagation();
                     itemEl.style.borderTop = '';
                     const draggedId = e.dataTransfer.getData('text/plain');
-                    if (!draggedId || draggedId === id || id === 'nard_quick_root') return;
+                    if (!draggedId || draggedId === id || id === 'nard_quick_root' || id === 'nard_shared_root') return;
 
                     const draggedNode = nardData.find(n => n.id === draggedId);
                     const targetNode = nardData.find(n => n.id === id);
@@ -497,7 +521,7 @@ export const init = (container) => {
         }
 
         treeContainer.querySelectorAll('.nard-content-box').forEach(box => box.addEventListener('click', (e) => {
-            if (e.currentTarget.dataset.id === 'nard_quick_root') return;
+            if (e.currentTarget.dataset.id === 'nard_quick_root' || e.currentTarget.dataset.id === 'nard_shared_root') return;
             openEditView(null, e.currentTarget.dataset.id);
         }));
         treeContainer.querySelectorAll('.add-sub-btn').forEach(btn => btn.addEventListener('click', (e) => openEditView(e.currentTarget.dataset.id, null)));
@@ -590,13 +614,23 @@ export const init = (container) => {
     const openEditView = (parentId = null, editId = null) => {
         const titleInput = document.getElementById('nardTitleInput'); const contentInput = document.getElementById('nardContentInput');
         const idInput = document.getElementById('nardId'); const pIdInput = document.getElementById('nardParentId');
+        const editFavBtn = document.getElementById('editFavoriteBtn');
+        const editFavIcon = editFavBtn.querySelector('span');
         
         if (editId) {
             const nard = nardData.find(m => m.id === editId);
-            if (nard) { editTitle.textContent = '나드 수정'; idInput.value = nard.id; pIdInput.value = nard.parentId || ''; titleInput.value = nard.title || ''; contentInput.value = nard.content || ''; }
+            if (nard) { 
+                editTitle.textContent = '나드 수정'; idInput.value = nard.id; pIdInput.value = nard.parentId || ''; titleInput.value = nard.title || ''; contentInput.value = nard.content || ''; 
+                currentEditIsFavorite = nard.isFavorite || false;
+            }
         } else {
             editTitle.textContent = parentId ? '하위 나드 추가' : '새 나드 추가'; idInput.value = ''; pIdInput.value = parentId || 'nard_quick_root'; titleInput.value = ''; contentInput.value = '';
+            currentEditIsFavorite = false;
         }
+        
+        editFavBtn.style.color = currentEditIsFavorite ? '#f1c40f' : '#e0e0e0';
+        editFavIcon.style.fontVariationSettings = currentEditIsFavorite ? "'FILL' 1" : "'FILL' 0";
+
         listView.style.display = 'none';
         editView.style.display = 'flex';
         setTimeout(() => titleInput.focus(), 100);
@@ -606,6 +640,15 @@ export const init = (container) => {
         editView.style.display = 'none';
         listView.style.display = 'block';
     });
+
+    document.getElementById('editFavoriteBtn').addEventListener('click', () => {
+        currentEditIsFavorite = !currentEditIsFavorite;
+        const editFavBtn = document.getElementById('editFavoriteBtn');
+        const editFavIcon = editFavBtn.querySelector('span');
+        editFavBtn.style.color = currentEditIsFavorite ? '#f1c40f' : '#e0e0e0';
+        editFavIcon.style.fontVariationSettings = currentEditIsFavorite ? "'FILL' 1" : "'FILL' 0";
+    });
+
     document.getElementById('saveNardBtn').addEventListener('click', async () => {
         const title = document.getElementById('nardTitleInput').value.trim(); const content = document.getElementById('nardContentInput').value.trim();
         const id = document.getElementById('nardId').value; const parentId = document.getElementById('nardParentId').value || null;
@@ -615,10 +658,10 @@ export const init = (container) => {
         let targetId = id;
         if (targetId) {
             const nard = nardData.find(m => m.id === targetId);
-            if (nard) { nard.title = title; nard.content = content; nard.updatedAt = Date.now(); }
+            if (nard) { nard.title = title; nard.content = content; nard.updatedAt = Date.now(); nard.isFavorite = currentEditIsFavorite; }
         } else {
             targetId = 'nard_' + Date.now();
-            nardData.push({ id: targetId, parentId: parentId, title: title, content: content, createdAt: Date.now(), updatedAt: Date.now(), isFavorite: false });
+            nardData.push({ id: targetId, parentId: parentId, title: title, content: content, createdAt: Date.now(), updatedAt: Date.now(), isFavorite: currentEditIsFavorite });
             if (parentId) collapsedStates[parentId] = false;
         }
         await saveNards(); 
