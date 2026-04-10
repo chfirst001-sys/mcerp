@@ -46,6 +46,7 @@
             <li data-module="building_register"><span class="material-symbols-outlined">add_business</span> 건물등록</li>
             <li data-module="member_manage"><span class="material-symbols-outlined">manage_accounts</span> 회원관리</li>
             <li data-module="db_manage"><span class="material-symbols-outlined">database</span> DB관리</li>
+            <li data-action="settings"><span class="material-symbols-outlined">settings</span> 설정</li>
             <li id="sidebarInstallBtn" class="hidden"><span class="material-symbols-outlined">install_mobile</span> 앱 설치 (홈 화면 추가)</li>
         </ul>
     </aside>
@@ -66,8 +67,11 @@
             <button id="addRootNardBtn" class="menu-btn" style="margin-right: 10px;" title="새 나드">
                 <span class="material-symbols-outlined">add</span>
             </button>
-            <button id="installAppBtn" class="menu-btn hidden" style="margin-right: 10px;" title="앱 설치(홈 화면에 추가)">
-                <span class="material-symbols-outlined">download</span>
+            <button id="globalSearchBtn" class="menu-btn" style="margin-right: 10px;" title="통합 검색">
+                <span class="material-symbols-outlined">search</span>
+            </button>
+            <button id="nardFavoriteBtn" class="menu-btn" style="margin-right: 10px;" title="나드 즐겨찾기">
+                <span class="material-symbols-outlined">star</span>
             </button>
             <button class="account-btn">
                 <span class="material-symbols-outlined">account_circle</span>
@@ -157,7 +161,62 @@
         </div>
     </div>
 
+    <!-- 통합 검색 모달 -->
+    <div id="searchModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 6000; justify-content: center; align-items: flex-start; padding-top: 80px;">
+        <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+            <div style="display: flex; gap: 10px; align-items: center; border-bottom: 2px solid #2980b9; padding-bottom: 10px; margin-bottom: 15px;">
+                <span class="material-symbols-outlined" style="color: #2980b9;">search</span>
+                <input type="text" id="searchInput" placeholder="검색어를 입력하세요 (엔터키로 검색)" style="border: none; outline: none; width: 100%; font-size: 16px; margin: 0; padding: 0; max-width: none;">
+                <button id="closeSearchModalBtn" style="background: none; border: none; cursor: pointer; color: #7f8c8d; padding: 0;"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            
+            <!-- 검색 옵션 (관리자용) -->
+            <div id="adminSearchOptions" style="display: none; gap: 15px; margin-bottom: 15px; font-size: 13px; background: #f8f9fa; padding: 10px; border-radius: 6px;">
+                <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;"><input type="radio" name="searchScope" value="nard" checked style="width: auto; margin: 0;"> 내 나드</label>
+                <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;"><input type="radio" name="searchScope" value="building" style="width: auto; margin: 0;"> 건물명</label>
+                <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;"><input type="radio" name="searchScope" value="tenant" style="width: auto; margin: 0;"> 입주자/회원명</label>
+            </div>
+            
+            <div id="searchResults" style="max-height: 400px; overflow-y: auto; font-size: 14px;">
+                <div style="text-align: center; padding: 20px; color: #95a5a6;">검색어를 입력 후 엔터를 누르세요.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 환경설정 모달 -->
+    <div id="settingsModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 6000; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="margin: 0; color: #2c3e50;">환경 설정</h3>
+                <button id="closeSettingsModalBtn" style="background: none; border: none; cursor: pointer; color: #7f8c8d;"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label style="font-size: 13px; color: #7f8c8d; display: block; margin-bottom: 10px;">나드 기본 모드</label>
+                <select id="nardDefaultModeSelect" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
+                    <option value="tree">나드 트리 (계층형)</option>
+                    <option value="memo">나드 메모 (카드형)</option>
+                </select>
+            </div>
+            <button id="saveSettingsBtn" style="width: 100%; background: #2980b9; color: white; border: none; padding: 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold;">저장</button>
+        </div>
+    </div>
+
+    <!-- 즐겨찾기 모달 (전역) -->
+    <div id="nardFavModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 6000; justify-content: center; align-items: flex-start; padding-top: 80px;">
+        <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f1c40f; padding-bottom: 10px; margin-bottom: 15px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined" style="color: #f1c40f; font-variation-settings: 'FILL' 1;">star</span>
+                    <h3 style="margin: 0; color: #2c3e50;">즐겨찾기 목록</h3>
+                </div>
+                <button id="closeNardFavModalBtn" style="background: none; border: none; cursor: pointer; color: #7f8c8d; padding: 0;"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div id="nardFavResults" style="max-height: 400px; overflow-y: auto; font-size: 14px;">
+            </div>
+        </div>
+    </div>
+
     <!-- 코드를 크게 업데이트할 때마다 v= 뒤의 버전 숫자를 올려주세요 -->
-    <script type="module" src="js/main.js?v=20240408"></script>
+    <script type="module" src="js/main.js?v=20240423"></script>
 </body>
 </html>
