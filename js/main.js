@@ -328,19 +328,28 @@ let deferredPrompt;
 const installAppBtn = document.getElementById('installAppBtn');
 const sidebarInstallBtn = document.getElementById('sidebarInstallBtn');
 
+// 앱이 이미 설치되어 실행 중인지 확인 (Standalone 모드)
+const isAppInstalled = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+// PWA로 실행 중이 아니라면(일반 브라우저 접속이라면) 무조건 설치 버튼 표시
+if (!isAppInstalled) {
+    if (installAppBtn) installAppBtn.classList.remove('hidden');
+    if (sidebarInstallBtn) sidebarInstallBtn.classList.remove('hidden');
+}
+
 // 브라우저가 PWA 설치 요구사항을 만족했다고 판단하면 발생하는 이벤트
 window.addEventListener('beforeinstallprompt', (e) => {
     // 기본 제공되는 설치 안내 미니 바 방지
     e.preventDefault();
     // 이벤트를 보관해두었다가 나중에 버튼 클릭 시 실행
     deferredPrompt = e;
-    // 다운로드 버튼들을 화면에 표시
-    if (installAppBtn) installAppBtn.classList.remove('hidden');
-    if (sidebarInstallBtn) sidebarInstallBtn.classList.remove('hidden');
 });
 
 const installApp = async () => {
-    if (!deferredPrompt) return;
+    if (!deferredPrompt) {
+        alert("현재 환경에서는 자동 설치가 지원되지 않습니다.\n\n[수동 설치 방법]\n- Android: 브라우저 우측 상단 메뉴(⋮) > '홈 화면에 추가' 또는 '앱 설치'\n- iOS (Safari): 하단 공유 버튼(⍐) > '홈 화면에 추가'");
+        return;
+    }
     // 보관했던 설치 프롬프트 창 띄우기
     deferredPrompt.prompt();
     // 사용자가 설치를 수락했는지 무시했는지 확인
