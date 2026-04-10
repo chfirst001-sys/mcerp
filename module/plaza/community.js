@@ -1,4 +1,4 @@
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDocs, doc, getDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, auth, escapeHtml } from "../../js/main.js";
 
 let unsubscribePlaza = null;
@@ -85,6 +85,67 @@ export const render = async (container) => {
     container.querySelectorAll('.plaza-list-item').forEach(item => {
         item.addEventListener('click', () => openPlazaFeed(container, item.dataset.id, item.dataset.name));
     });
+};
+
+// Nard 연동: 현재 광장의 게시물 데이터를 나드로 동기화
+const syncPlazaToNard = async () => {
+    if (!auth.currentUser || !currentPlazaBuildingId) return;
+    const bId = currentPlazaBuildingId;
+
+    try {
+        const userRef = doc(db, "users", auth.currentUser.uid);
+        const userDoc = await getDoc(userRef);
+        if (!userDoc.exists()) return;
+
+        let nardTree = userDoc.data().nardTree || [];
+
+        // 1. 기본 루트(건물, 광장) 보장
+        const bldgNardId = `nard_bldg_${bId}`;
+        const plazaRootNardId = `nard_plaza_${bId}`;
+
+        if (!nardTree.some(n => n.id === bldgNardId)) {
+            const bDoc = await getDoc(doc(db, "buildings", bId));
+            const bName = bDoc.exists() ? (bDoc.data().name || bDoc.data().buildingName || '건물') : '건물';
+            nardTree.push({ id: bldgNardId, parentId: 'nard_shared_root', title: bName, content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
+        }
+        if (!nardTree.some(n => n.id === plazaRootNardId)) {
+            nardTree.push({ id: plazaRootNardId, parentId: bldgNardId, title: '광장', content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
+        }
+
+        // 2. 현재 광장의 모든 게시물 가져오기
+        const postsSnapshot = await getDocs(query(collection(db, "buildings", bId, "plaza_posts")));
+        const currentPostIds = new Set();
+        const currentPosts = [];
+        postsSnapshot.forEach(postDoc => {
+            currentPostIds.add(postDoc.id);
+            currentPosts.push({ id: postDoc.id, ...postDoc.data() });
+        });
+
+        // 3. 삭제된 항목을 Nard 트리에서 제거 (현재 건물 광장에 속한 것만)
+        const nardPrefix = 'nard_plaza_item_';
+        nardTree = nardTree.filter(n => {
+            if (n.parentId === plazaRootNardId) return currentPostIds.has(n.id.replace(nardPrefix, ''));
+            return true;
+        });
+
+        // 4. treeData 생성 및 수정 내용 동기화
+        currentPosts.forEach(post => {
+            const nardId = `${nardPrefix}${post.id}`;
+            const title = `${post.category ? `[${post.category}] ` : ''}${post.content.substring(0, 20)}...`;
+            const content = `작성자: ${post.authorName}\n작성일: ${post.createdAt ? post.createdAt.toDate().toLocaleString('ko-KR') : '방금 전'}\n\n${post.content}`;
+            
+            const existingIdx = nardTree.findIndex(n => n.id === nardId);
+            if (existingIdx >= 0) {
+                nardTree[existingIdx].title = title; nardTree[existingIdx].content = content; nardTree[existingIdx].updatedAt = post.createdAt ? post.createdAt.toMillis() : Date.now();
+            } else {
+                nardTree.push({ id: nardId, parentId: plazaRootNardId, title: title, content: content, createdAt: post.createdAt ? post.createdAt.toMillis() : Date.now(), updatedAt: post.createdAt ? post.createdAt.toMillis() : Date.now(), isEncrypted: false, isFavorite: false });
+            }
+        });
+
+        await updateDoc(userRef, { nardTree });
+    } catch (err) {
+        console.error("광장-나드 동기화 실패:", err);
+    }
 };
 
 const openPlazaFeed = (container, bId, bName) => {
@@ -179,6 +240,7 @@ const openPlazaFeed = (container, bId, bName) => {
             });
             document.getElementById('postModal').style.display = 'none';
             document.getElementById('postContent').value = '';
+            await syncPlazaToNard(); // Nard 동기화
         } catch (error) {
             console.error("게시물 등록 실패:", error); alert("등록에 실패했습니다.");
         } finally {
@@ -213,6 +275,13 @@ const loadPlazaPosts = (bId, category) => {
             const timeStr = data.createdAt ? data.createdAt.toDate().toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '방금 전';
             const authorName = data.authorName || (data.authorEmail ? data.authorEmail.split('@')[0] : '익명');
             
+            const isAuthor = data.authorUid === auth.currentUser.uid;
+            const isAdmin = (window.currentUserWeight || 0) > 50;
+            let deleteBtnHtml = '';
+            if (isAuthor || isAdmin) {
+                deleteBtnHtml = `<button class="delete-post-btn" data-id="${docSnap.id}" style="background: none; border: none; color: #c0392b; cursor: pointer; padding: 0; font-size: 12px; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">delete</span> 삭제</button>`;
+            }
+            
             let catBadge = '';
             if(data.category === '공지') catBadge = '<span style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-right: 5px;">공지</span>';
             else if(data.category === '민원') catBadge = '<span style="background: #f39c12; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-right: 5px;">민원</span>';
@@ -228,9 +297,12 @@ const loadPlazaPosts = (bId, category) => {
                             </div>
                         </div>
                         <div style="font-size: 14px; color: #34495e; line-height: 1.5; margin-bottom: 10px; white-space: pre-wrap; word-break: break-all;">${catBadge}${escapeHtml(data.content)}</div>
-                        <div style="border-top: 1px solid #f0f0f0; padding-top: 10px; display: flex; gap: 15px;">
-                            <span style="font-size: 12px; color: #7f8c8d; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">favorite</span> 좋아요</span>
-                            <span style="font-size: 12px; color: #7f8c8d; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">chat_bubble</span> 댓글 쓰기</span>
+                        <div style="border-top: 1px solid #f0f0f0; padding-top: 10px; display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; gap: 15px;">
+                                <span style="font-size: 12px; color: #7f8c8d; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">favorite</span> 좋아요</span>
+                                <span style="font-size: 12px; color: #7f8c8d; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">chat_bubble</span> 댓글 쓰기</span>
+                            </div>
+                            ${deleteBtnHtml}
                         </div>
                     </div>`;
         });
@@ -240,5 +312,21 @@ const loadPlazaPosts = (bId, category) => {
         } else {
             postsDiv.innerHTML = html;
         }
+
+        // 삭제 버튼 이벤트 리스너
+        postsDiv.querySelectorAll('.delete-post-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const postId = e.currentTarget.dataset.id;
+                if (confirm('이 게시물을 정말 삭제하시겠습니까?')) {
+                    try {
+                        await deleteDoc(doc(db, "buildings", currentPlazaBuildingId, "plaza_posts", postId));
+                        await syncPlazaToNard(); // Nard 동기화
+                    } catch (error) {
+                        console.error("게시물 삭제 실패:", error); alert("삭제에 실패했습니다.");
+                    }
+                }
+            });
+        });
     }, (error) => console.error("게시물 로드 에러:", error));
 };

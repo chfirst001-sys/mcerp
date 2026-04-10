@@ -384,6 +384,8 @@ export const init = (container) => {
                     leftIcon = 'folder'; iconSize = '18px'; toggleButtonColor = '#d35400';
                 } else if (item.id.startsWith('nard_fac_item_')) {
                     leftIcon = 'article'; iconSize = '18px'; toggleButtonColor = '#8e44ad';
+                } else if (item.id.startsWith('nard_plaza_item_')) {
+                    leftIcon = 'chat_bubble'; iconSize = '18px'; toggleButtonColor = '#27ae60';
                 } else if (item.id.startsWith('nard_fac_')) {
                     leftIcon = 'handyman'; iconSize = '18px'; toggleButtonColor = '#e67e22';
                 } else if (item.id.startsWith('nard_plaza_')) {
