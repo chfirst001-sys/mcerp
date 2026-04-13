@@ -1,6 +1,7 @@
-import { doc, getDoc, updateDoc, collection, query, getDocs } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { db, auth, escapeHtml } from "../js/main.js";
-import CryptoJS from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm";
+import { auth, escapeHtml } from "../js/main.js";
+import { debouncedAutoSave, autoSaveToLocal, initEditorEvents } from "./nard/editor.js";
+import { isFixedNode, fetchNardTree, commitNardTree } from "./nard/store.js";
+import { injectSettingsModal } from "./nard/settings.js";
 
 let nardData = [];
 let collapsedStates = {}; // id: boolean (true면 접힘)
@@ -13,24 +14,6 @@ let currentEditNardId = null;
 let currentNardMode = localStorage.getItem('nardDefaultMode') || 'tree';
 let renderTreeRef = null;
 let targetHighlightId = null; // 저장 및 이동 시 하이라이트할 나드 ID
-
-// 고정 구조 노드 여부 확인 헬퍼
-const isFixedNode = (id) => {
-    if (!id) return false;
-    return id === 'nard_quick_root' || id === 'nard_shared_root' || 
-           id.startsWith('nard_bldg_') || id.startsWith('nard_fac_') || id.startsWith('nard_plaza_');
-};
-
-// 공유나드 하위 여부 확인 헬퍼 (평문 저장용)
-const isSharedDescendant = (id) => {
-    let curr = id;
-    while (curr) {
-        if (curr === 'nard_shared_root') return true;
-        const node = nardData.find(n => n.id === curr);
-        curr = node ? node.parentId : null;
-    }
-    return false;
-};
 
 // 하단 탭 재클릭 시 발동 (전체 접기)
 export const onReclick = () => {
@@ -71,12 +54,17 @@ export const init = (container) => {
         <style>
             .action-buttons-wrap::-webkit-scrollbar { display: none; }
             .nard-drag-item.dragging { opacity: 0.5; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+            .nard-drag-item { touch-action: none; } /* 모바일에서 스크롤과 드래그 충돌 방지 */
             @keyframes highlight-blue {
                 0% { background-color: #fff; }
                 30% { background-color: #d6eaf8; }
                 100% { background-color: #fff; }
             }
             .highlight-anim { animation: highlight-blue 1.5s ease-in-out !important; }
+            
+            .toolbar-scroll-area::-webkit-scrollbar { display: none; }
+            .toolbar-scroll-area { scrollbar-width: none; -ms-overflow-style: none; }
+            #nardContentInput:empty:before { content: attr(placeholder); color: #bdc3c7; pointer-events: none; display: block; }
         </style>
         <div id="nardListView">
             <div id="parentSelectBanner" style="display: none; background: #ffeaa7; padding: 10px; margin-bottom: 10px; border-radius: 4px; font-size: 13px; color: #d35400; align-items: center; justify-content: space-between;">
@@ -109,9 +97,42 @@ export const init = (container) => {
                 <input type="hidden" id="nardId">
                 <input type="hidden" id="nardParentId">
                 
+                <!-- 나드 메타데이터 임시 저장소 -->
+                <input type="hidden" id="nardShowInKanban" value="false">
+                <input type="hidden" id="nardStatus" value="todo">
+                <input type="hidden" id="nardDueDate" value="">
+                <input type="hidden" id="nardDocType" value="">
+                <input type="hidden" id="nardArtBg" value="#ffffff">
+                
                 <input type="text" id="nardTitleInput" placeholder="제목" style="border: none !important; outline: none !important; font-size: 22px !important; font-weight: bold; margin-bottom: 15px; padding: 0 !important; width: 100%; max-width: 100%; background: transparent !important; box-shadow: none !important;">
                 
-                <textarea id="nardContentInput" placeholder="나드 작성..." style="border: none !important; outline: none !important; font-size: 16px; flex: 1; resize: none; padding: 0 !important; width: 100%; max-width: 100%; line-height: 1.6; background: transparent !important; box-shadow: none !important; min-height: 300px;"></textarea>
+                <div id="nardContentInput" contenteditable="true" placeholder="나드 작성 (텍스트를 선택 후 아래 툴바를 이용해 보세요)..." style="border: none !important; outline: none !important; font-size: 16px; flex: 1; overflow-y: auto; padding: 0 !important; width: 100%; max-width: 100%; line-height: 1.6; background: transparent !important; box-shadow: none !important; min-height: 200px;"></div>
+            </div>
+            
+            <!-- 마크다운(서식) 툴바 -->
+            <div style="position: relative; display: flex; align-items: center; border-top: 1px solid #eee; padding: 8px 15px; background: #fdfefe; border-radius: 0 0 8px 8px;">
+                <div id="color-palette-popup" style="display: none; position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%); background: white; border: 1px solid #eee; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 8px; z-index: 100; width: 140px; flex-wrap: wrap; gap: 6px;"></div>
+                
+                <div class="toolbar-scroll-area" style="flex: 1; display: flex; gap: 4px; overflow-x: auto; white-space: nowrap; padding-right: 10px;">
+                    <button type="button" class="fmt-btn" data-cmd="bold" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="font-size:20px;">format_bold</span></button>
+                    <button type="button" class="fmt-btn" data-cmd="italic" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="font-size:20px;">format_italic</span></button>
+                    <button type="button" class="fmt-btn" data-cmd="underline" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="font-size:20px;">format_underlined</span></button>
+                    <button type="button" class="fmt-btn" data-cmd="strikeThrough" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="font-size:20px;">strikethrough_s</span></button>
+                    
+                    <div style="width: 1px; background: #eee; margin: 4px 4px; flex-shrink: 0;"></div>
+                    
+                    <button type="button" id="fmt-color-btn" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; display: flex; align-items: center; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'" title="글자색 변경"><span class="material-symbols-outlined" style="font-size:20px;">format_color_text</span></button>
+                    
+                    <div style="width: 1px; background: #eee; margin: 4px 4px; flex-shrink: 0;"></div>
+                    
+                    <button type="button" class="fmt-btn" data-cmd="justifyLeft" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="font-size:20px;">format_align_left</span></button>
+                    <button type="button" class="fmt-btn" data-cmd="justifyCenter" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="font-size:20px;">format_align_center</span></button>
+                    <button type="button" class="fmt-btn" data-cmd="justifyRight" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'"><span class="material-symbols-outlined" style="font-size:20px;">format_align_right</span></button>
+                </div>
+                
+                <div style="flex-shrink: 0; padding-left: 8px; border-left: 1px solid #eee;">
+                    <button type="button" id="nardSettingsBtn" style="background: none; border: none; color: #7f8c8d; cursor: pointer; padding: 8px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f0f3f4'" onmouseout="this.style.background='none'" title="나드 설정"><span class="material-symbols-outlined" style="font-size:20px;">settings</span></button>
+                </div>
             </div>
         </div>
     `;
@@ -123,65 +144,9 @@ export const init = (container) => {
 
     const loadNards = async () => {
         try {
-            const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
-            if (userDoc.exists()) {
-                // 기존 메모 데이터와의 호환성 유지
-                const rawData = userDoc.data().nardTree || userDoc.data().memoTree || [];
-                hasDecryptionError = false;
-                
-                nardData = rawData.map(item => {
-                    let decryptedTitle = item.title;
-                    let decryptedContent = item.content;
-                    
-                    if (item.isEncrypted) {
-                        try {
-                            const titleBytes = CryptoJS.AES.decrypt(item.title, nardSecretKey);
-                            decryptedTitle = titleBytes.toString(CryptoJS.enc.Utf8);
-                            if (!decryptedTitle) throw new Error("Decryption failed");
-                            
-                            if (item.content) {
-                                const contentBytes = CryptoJS.AES.decrypt(item.content, nardSecretKey);
-                                decryptedContent = contentBytes.toString(CryptoJS.enc.Utf8);
-                            }
-                        } catch (e) {
-                            hasDecryptionError = true;
-                            decryptedTitle = "🔒 복호화 실패";
-                            decryptedContent = "비밀번호가 다릅니다. 데이터를 안전하게 보호하기 위해 읽기 전용으로 표시됩니다.";
-                        }
-                    }
-                    return { ...item, title: decryptedTitle, content: decryptedContent, isFavorite: item.isFavorite || false };
-                });
-            }
-            
-            // 빠른나드 강제 주입 (삭제 불가, 평문 고정)
-            if (!nardData.some(m => m.id === 'nard_quick_root')) {
-                nardData.unshift({
-                    id: 'nard_quick_root',
-                    parentId: null,
-                    title: '빠른나드',
-                    content: '',
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                    isEncrypted: false,
-                    isFavorite: false
-                });
-            }
-
-            // 공유나드 강제 주입 (삭제 불가, 광장 공유용)
-            if (!nardData.some(m => m.id === 'nard_shared_root')) {
-                const quickIndex = nardData.findIndex(m => m.id === 'nard_quick_root');
-                const insertIdx = quickIndex >= 0 ? quickIndex + 1 : 0;
-                nardData.splice(insertIdx, 0, {
-                    id: 'nard_shared_root',
-                    parentId: null,
-                    title: '공유나드',
-                    content: '',
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                    isEncrypted: false,
-                    isFavorite: false
-                });
-            }
+            const { parsedData, hasDecryptionError: err } = await fetchNardTree(auth.currentUser.uid, nardSecretKey);
+            nardData = parsedData;
+            hasDecryptionError = err;
 
             // 모든 나드를 기본적으로 접힌 상태로 초기화 (최상위 루트만 보이도록)
             nardData.forEach(m => collapsedStates[m.id] = true);
@@ -203,26 +168,7 @@ export const init = (container) => {
     };
 
     const saveNards = async () => {
-        if (hasDecryptionError) {
-            alert("복호화에 실패한 항목이 있어 데이터 보호를 위해 저장이 차단되었습니다.\n올바른 비밀번호로 다시 로그인(새로고침)해주세요.");
-            return;
-        }
-        try {
-            const encryptedData = nardData.map(item => {
-                if (isFixedNode(item.id) || isSharedDescendant(item.id)) return { ...item, isEncrypted: false };
-                return {
-                    ...item,
-                    title: CryptoJS.AES.encrypt(item.title || '', nardSecretKey).toString(),
-                    content: item.content ? CryptoJS.AES.encrypt(item.content, nardSecretKey).toString() : '',
-                    isEncrypted: true,
-                    isFavorite: item.isFavorite || false
-                };
-            });
-            await updateDoc(doc(db, "users", auth.currentUser.uid), { nardTree: encryptedData });
-        } catch (error) {
-            console.error("나드 저장 실패:", error);
-            alert("저장 중 오류가 발생했습니다.");
-        }
+        await commitNardTree(auth.currentUser.uid, nardSecretKey, nardData, hasDecryptionError);
     };
 
     const expandParents = (id) => {
@@ -255,6 +201,25 @@ export const init = (container) => {
         if (currentNardMode === 'memo' && !isSelectingParent) {
             // 메모(구글 Keep) 모드 렌더링
             let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; padding: 10px;">';
+            
+            // 임시저장된 나드가 있으면 맨 앞에 표시
+            const tempSaveJSON = localStorage.getItem('gonard_temp_save');
+            if (tempSaveJSON) {
+                const tempSave = JSON.parse(tempSaveJSON);
+                const dateStr = new Date(tempSave.savedAt).toLocaleDateString('ko-KR', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+                html += `
+                    <div class="memo-card temp-save-card" style="background: #fff9e6; border: 2px dashed #f39c12; position: relative; padding: 12px; cursor: pointer; display: flex; flex-direction: column; height: 160px;" title="클릭하여 이어쓰기">
+                        <div style="position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; align-items: center;">
+                            <span style="font-size: 10px; background: #f39c12; color: white; padding: 2px 6px; border-radius: 8px; font-weight: bold;">임시저장</span>
+                            <button class="discard-temp-btn" style="background: #e74c3c; color: white; border: none; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center;" title="임시저장 삭제"><span class="material-symbols-outlined" style="font-size: 14px;">delete</span></button>
+                        </div>
+                        <div style="font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 24px;">${escapeHtml(tempSave.title || '제목 없음')}</div>
+                        <div style="font-size: 12px; color: #7f8c8d; flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; line-height: 1.5; word-break: break-all;">${escapeHtml(tempSave.content?.replace(/<[^>]*>?/gm, '') || '')}</div>
+                        <div style="font-size: 10px; color: #bdc3c7; text-align: right; margin-top: 8px;">${dateStr}</div>
+                    </div>
+                `;
+            }
+
             const memos = nardData.filter(m => !isFixedNode(m.id)).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
             
             if (memos.length === 0) {
@@ -263,11 +228,13 @@ export const init = (container) => {
                 memos.forEach(item => {
                     const favIcon = `<span class="material-symbols-outlined fav-btn" data-id="${item.id}" style="color: ${item.isFavorite ? '#f1c40f' : '#e0e0e0'}; font-variation-settings: 'FILL' ${item.isFavorite ? '1' : '0'}; font-size: 20px; position: absolute; top: 10px; right: 10px; z-index: 2; cursor: pointer; transition: color 0.2s;" title="즐겨찾기" onmouseover="this.style.color='#f1c40f'" onmouseout="this.style.color='${item.isFavorite ? '#f1c40f' : '#e0e0e0'}'">star</span>`;
                     const dateStr = item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('ko-KR', {month:'short', day:'numeric'}) : '';
+                    const artBgStyle = (item.artBg && item.artBg !== '#ffffff') ? `background-color: ${item.artBg} !important; border-color: ${item.artBg} !important;` : 'background: #fff;';
                     html += `
                         <div class="memo-card" data-id="${item.id}" style="background: #fff; position: relative; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; flex-direction: column; height: 160px; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                        <div class="memo-card" data-id="${item.id}" style="${artBgStyle} position: relative; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; flex-direction: column; height: 160px; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                             ${favIcon}
                             <div style="font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 24px;">${escapeHtml(item.title || '제목 없음')}</div>
-                            <div style="font-size: 12px; color: #7f8c8d; flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; line-height: 1.5; word-break: break-all;">${escapeHtml(item.content || '')}</div>
+                            <div style="font-size: 12px; color: #7f8c8d; flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; line-height: 1.5; word-break: break-all;">${escapeHtml(item.content?.replace(/<[^>]*>?/gm, '') || '')}</div>
                             <div style="font-size: 10px; color: #bdc3c7; text-align: right; margin-top: 8px;">${dateStr}</div>
                         </div>
                     `;
@@ -279,6 +246,22 @@ export const init = (container) => {
             treeContainer.querySelectorAll('.memo-card').forEach(card => {
                 card.addEventListener('click', (e) => openEditView(null, e.currentTarget.dataset.id));
             });
+            treeContainer.querySelectorAll('.temp-save-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const tempSave = JSON.parse(localStorage.getItem('gonard_temp_save'));
+                    if (tempSave) openEditView(null, null, tempSave);
+                });
+            });
+            treeContainer.querySelectorAll('.discard-temp-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (confirm('임시저장된 내용을 삭제하시겠습니까?')) {
+                        localStorage.removeItem('gonard_temp_save');
+                        renderTree();
+                    }
+                });
+            });
+
             treeContainer.querySelectorAll('.fav-btn').forEach(btn => btn.addEventListener('click', async (e) => {
                 e.stopPropagation(); // 클릭 시 카드 수정 모드로 넘어가는 것을 방지
                 const id = e.currentTarget.dataset.id;
@@ -292,6 +275,24 @@ export const init = (container) => {
         }
 
         // 트리 모드 렌더링
+        let tempSaveTreeHTML = '';
+        const tempSaveJSON = localStorage.getItem('gonard_temp_save');
+        if (tempSaveJSON && !isSelectingParent) {
+            tempSaveTreeHTML = `
+                <div style="margin: 6px 0; position: relative;" class="temp-save-card" title="클릭하여 이어쓰기">
+                    <div style="display: flex; align-items: flex-start; gap: 8px; width: 100%;">
+                        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 8px; background: #fff9e6; border: 2px dashed #f39c12; width: fit-content; min-width: auto; cursor: pointer;">
+                            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                                <span class="material-symbols-outlined" style="color: #f39c12;">edit_note</span>
+                                <div style="font-weight: bold; font-size: 14px; color: #2c3e50;">임시저장된 나드</div>
+                            </div>
+                            <button class="discard-temp-btn" style="background: #e74c3c; color: white; border: none; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center;" title="임시저장 삭제"><span class="material-symbols-outlined" style="font-size: 16px;">delete</span></button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         const buildTreeHTML = (parentId, depth) => {
             const children = nardData.filter(m => m.parentId === parentId);
             if (children.length === 0) return '';
@@ -401,11 +402,14 @@ export const init = (container) => {
 
                 // 제목을 정확히 10글자로 제한 (나머지는 ...)
                 const shortTitle = item.title && item.title.length > 8 ? item.title.substring(0, 10) + '...' : (item.title || '');
+                
+                const artBgStyle = (item.artBg && item.artBg !== '#ffffff') ? `background-color: ${item.artBg} !important; border-color: ${item.artBg} !important;` : 'background: #fff;';
 
                 html += `
                     <li style="margin: 6px 0; position: relative;" id="nard-node-${item.id}" class="nard-drag-item" data-id="${item.id}">
                         <div style="display: flex; align-items: flex-start; gap: 8px; width: 100%;">
                             <div class="nard-main-card" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: ${isExpanded ? '12px' : '8px 10px'}; border-radius: 8px; background: #fff; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); ${isExpanded ? 'flex: 1;' : 'width: fit-content;'} min-width: ${isExpanded ? '280px' : 'auto'}; transition: all 0.3s ease;" onmouseover="this.style.borderColor='#bdc3c7'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.08)';" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';">
+                            <div class="nard-main-card" style="${artBgStyle} display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: ${isExpanded ? '12px' : '8px 10px'}; border-radius: 8px; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); ${isExpanded ? 'flex: 1;' : 'width: fit-content;'} min-width: ${isExpanded ? '280px' : 'auto'}; transition: all 0.3s ease;" onmouseover="this.style.borderColor='#bdc3c7'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.08)';" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';">
                                 <div style="display: flex; align-items: flex-start; gap: 8px; overflow: hidden; ${isExpanded ? 'flex: 1;' : 'width: 100px;'}">
                                     <button class="content-toggle-btn" data-id="${item.id}" style="background: none; border: none; padding: 0; cursor: ${toggleButtonCursor}; color: ${toggleButtonColor}; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0; transition: background 0.2s;" ${toggleButtonHover}>
                                         <span class="material-symbols-outlined" style="font-size: ${iconSize}; transition: transform 0.2s;">${leftIcon}</span>
@@ -415,7 +419,7 @@ export const init = (container) => {
                                             ${escapeHtml(isExpanded ? (item.title || '') : shortTitle)}
                                         </div>
                                         ${item.content ? `
-                                        <div class="nard-content-box" data-id="${item.id}" style="display: ${isExpanded ? 'block' : 'none'}; width: 100%; text-align: left !important; font-size: 13px; color: #333; margin-top: 8px; line-height: 1.5; max-height: none; white-space: pre-wrap; word-break: break-all; cursor: pointer; background: transparent; padding: 0; border: none;" title="클릭하여 내용 전체보기/수정">${escapeHtml(item.content)}</div>` : ''}
+                                        <div class="nard-content-box" data-id="${item.id}" style="display: ${isExpanded ? 'block' : 'none'}; width: 100%; text-align: left !important; font-size: 13px; color: #333; margin-top: 8px; line-height: 1.5; max-height: none; white-space: pre-wrap; word-break: break-all; cursor: pointer; background: transparent; padding: 0; border: none;" title="클릭하여 내용 전체보기/수정">${item.content || ''}</div>` : ''}
                                     </div>
                                 </div>
                                 
@@ -503,7 +507,7 @@ export const init = (container) => {
         };
 
         const treeHTML = buildTreeHTML(null, 0);
-        treeContainer.innerHTML = treeHTML || `<div style="text-align: center; padding: 40px 20px; color: #7f8c8d;"><span class="material-symbols-outlined" style="font-size: 40px; color: #bdc3c7; margin-bottom: 10px;">edit_document</span><br>작성된 나드가 없습니다.<br><span style="font-size:12px;">상단의 '+' 버튼을 눌러 나드를 생성하세요.</span></div>`;
+        treeContainer.innerHTML = (tempSaveTreeHTML + treeHTML) || `<div style="text-align: center; padding: 40px 20px; color: #7f8c8d;"><span class="material-symbols-outlined" style="font-size: 40px; color: #bdc3c7; margin-bottom: 10px;">edit_document</span><br>작성된 나드가 없습니다.<br><span style="font-size:12px;">상단의 '+' 버튼을 눌러 나드를 생성하세요.</span></div>`;
 
         bindTreeEvents();
 
@@ -555,6 +559,21 @@ export const init = (container) => {
             });
         });
 
+        treeContainer.querySelectorAll('.temp-save-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const tempSave = JSON.parse(localStorage.getItem('gonard_temp_save'));
+                if (tempSave) openEditView(null, null, tempSave);
+            });
+        });
+        treeContainer.querySelectorAll('.discard-temp-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm('임시저장된 내용을 삭제하시겠습니까?')) {
+                    localStorage.removeItem('gonard_temp_save');
+                    renderTree();
+                }
+            });
+        });
         if (isSelectingParent) {
             treeContainer.querySelectorAll('.select-parent-btn').forEach(btn => btn.addEventListener('click', (e) => {
                 const targetId = e.currentTarget.dataset.id;
@@ -654,23 +673,59 @@ export const init = (container) => {
     };
     renderTreeRef = renderTree;
 
-    const openEditView = (parentId = null, editId = null) => {
+    const openEditView = (parentId = null, editId = null, tempSaveData = null) => {
         const titleInput = document.getElementById('nardTitleInput'); const contentInput = document.getElementById('nardContentInput');
         const idInput = document.getElementById('nardId'); const pIdInput = document.getElementById('nardParentId');
         const editFavBtn = document.getElementById('editFavoriteBtn');
         const editFavIcon = editFavBtn.querySelector('span');
         
-        if (editId) {
+        // 자동저장 리스너 부착
+        titleInput.removeEventListener('input', debouncedAutoSave);
+        contentInput.removeEventListener('input', debouncedAutoSave);
+        titleInput.addEventListener('input', debouncedAutoSave);
+        contentInput.addEventListener('input', debouncedAutoSave);
+
+        // 저장된 설정 데이터 불러오기 (칸반 생성 액션으로 들어온 경우 session 참조)
+        const initialStatus = sessionStorage.getItem('newNardKanbanStatus') || 'todo';
+        document.getElementById('nardShowInKanban').value = tempSaveData?.showInKanban ? 'true' : 'false';
+        document.getElementById('nardStatus').value = tempSaveData?.status || initialStatus;
+        document.getElementById('nardDueDate').value = tempSaveData?.dueDate || '';
+        document.getElementById('nardDocType').value = tempSaveData?.docType || '';
+        document.getElementById('nardArtBg').value = tempSaveData?.artBg || '#ffffff';
+
+        if (tempSaveData) {
+            editTitle.textContent = '임시 나드 이어쓰기';
+            idInput.value = ''; // 새 나드이므로 ID는 비움
+            pIdInput.value = 'nard_quick_root'; // 저장 위치는 '빠른나드'로 고정
+            titleInput.value = tempSaveData.title || '';
+            contentInput.innerHTML = tempSaveData.content || '';
+            currentEditIsFavorite = false;
+        } else if (editId) {
             const nard = nardData.find(m => m.id === editId);
             if (nard) { 
-                editTitle.textContent = '나드 수정'; idInput.value = nard.id; pIdInput.value = nard.parentId || ''; titleInput.value = nard.title || ''; contentInput.value = nard.content || ''; 
+                editTitle.textContent = '나드 수정'; idInput.value = nard.id; pIdInput.value = nard.parentId || ''; titleInput.value = nard.title || ''; 
+                
+                let htmlContent = nard.content || '';
+                // 구버전 평문 데이터 하위 호환 처리
+                if (htmlContent && !/<\/?[a-z][\s\S]*>/i.test(htmlContent)) {
+                    htmlContent = escapeHtml(htmlContent).replace(/\n/g, '<br>');
+                }
+                contentInput.innerHTML = htmlContent; 
                 currentEditIsFavorite = nard.isFavorite || false;
+                
+                // 기존 나드 메타데이터 세팅
+                document.getElementById('nardShowInKanban').value = nard.showInKanban ? 'true' : 'false';
+                document.getElementById('nardStatus').value = nard.status || 'todo';
+                document.getElementById('nardDueDate').value = nard.dueDate || '';
+                document.getElementById('nardDocType').value = nard.docType || '';
+                document.getElementById('nardArtBg').value = nard.artBg || '#ffffff';
             }
         } else {
-            editTitle.textContent = parentId ? '하위 나드 추가' : '새 나드 추가'; idInput.value = ''; pIdInput.value = parentId || 'nard_quick_root'; titleInput.value = ''; contentInput.value = '';
+            editTitle.textContent = parentId ? '하위 나드 추가' : '새 나드 추가'; idInput.value = ''; pIdInput.value = parentId || 'nard_quick_root'; titleInput.value = ''; contentInput.innerHTML = '';
             currentEditIsFavorite = false;
         }
         
+        sessionStorage.removeItem('newNardKanbanStatus');
         editFavBtn.style.color = currentEditIsFavorite ? '#f1c40f' : '#e0e0e0';
         editFavIcon.style.fontVariationSettings = currentEditIsFavorite ? "'FILL' 1" : "'FILL' 0";
 
@@ -680,8 +735,12 @@ export const init = (container) => {
     };
 
     document.getElementById('cancelNardBtn').addEventListener('click', () => {
+        // 닫기 전에 마지막으로 한 번 저장 시도
+        autoSaveToLocal();
         editView.style.display = 'none';
         listView.style.display = 'block';
+        // 닫은 후 목록을 새로고침하여 임시저장 카드 표시/숨김
+        renderTree();
     });
 
     document.getElementById('editFavoriteBtn').addEventListener('click', () => {
@@ -693,19 +752,32 @@ export const init = (container) => {
     });
 
     document.getElementById('saveNardBtn').addEventListener('click', async () => {
-        const title = document.getElementById('nardTitleInput').value.trim(); const content = document.getElementById('nardContentInput').value.trim();
+        const title = document.getElementById('nardTitleInput').value.trim(); const content = document.getElementById('nardContentInput').innerHTML;
         const id = document.getElementById('nardId').value; const parentId = document.getElementById('nardParentId').value || null;
+
+        const showInKanban = document.getElementById('nardShowInKanban').value === 'true';
+        const status = document.getElementById('nardStatus').value;
+        const dueDate = document.getElementById('nardDueDate').value;
+        const docType = document.getElementById('nardDocType').value;
+        const artBg = document.getElementById('nardArtBg').value;
 
         if (!title) return alert('제목을 입력해주세요.');
 
         let targetId = id;
         if (targetId) {
             const nard = nardData.find(m => m.id === targetId);
-            if (nard) { nard.title = title; nard.content = content; nard.updatedAt = Date.now(); nard.isFavorite = currentEditIsFavorite; }
+            if (nard) { 
+                nard.title = title; nard.content = content; nard.updatedAt = Date.now(); nard.isFavorite = currentEditIsFavorite; 
+                nard.showInKanban = showInKanban; nard.status = status; nard.dueDate = dueDate;
+                nard.showInKanban = showInKanban; nard.status = status; nard.dueDate = dueDate; nard.docType = docType; nard.artBg = artBg;
+            }
         } else {
             targetId = 'nard_' + Date.now();
-            nardData.push({ id: targetId, parentId: parentId, title: title, content: content, createdAt: Date.now(), updatedAt: Date.now(), isFavorite: currentEditIsFavorite });
+            nardData.push({ id: targetId, parentId: parentId, title: title, content: content, createdAt: Date.now(), updatedAt: Date.now(), isFavorite: currentEditIsFavorite, showInKanban, status, dueDate });
+            nardData.push({ id: targetId, parentId: parentId, title: title, content: content, createdAt: Date.now(), updatedAt: Date.now(), isFavorite: currentEditIsFavorite, showInKanban, status, dueDate, docType, artBg });
             if (parentId) collapsedStates[parentId] = false;
+            // 임시저장된 내용을 영구 저장했으므로, 임시저장소 비우기
+            localStorage.removeItem('gonard_temp_save');
         }
         await saveNards(); 
         editView.style.display = 'none';
@@ -743,7 +815,15 @@ export const init = (container) => {
     });
 
     // 상단 '+' 버튼 클릭 시 전역 커스텀 이벤트 연동
-    const handleOpenModal = () => openEditView(null, null);
+    const handleOpenModal = () => {
+        // 임시저장된 내용이 있으면 그걸 먼저 열어줌
+        const tempSave = localStorage.getItem('gonard_temp_save');
+        if (tempSave) {
+            openEditView(null, null, JSON.parse(tempSave));
+        } else {
+            openEditView(null, null);
+        }
+    };
     if (container._nardOpenHandler) {
         document.removeEventListener('openNardModal', container._nardOpenHandler);
     }
@@ -753,7 +833,7 @@ export const init = (container) => {
     // 외부(다른 탭)에서 '+' 버튼을 눌러 나드 탭으로 진입한 경우 자동 모달 오픈
     if (window._triggerNewNard) {
         window._triggerNewNard = false;
-        setTimeout(() => openEditView(null, null), 100);
+        setTimeout(handleOpenModal, 100);
     }
 
     // 여백 클릭 시 열려있는 액션 버튼(점세개 메뉴) 닫기
@@ -782,4 +862,8 @@ export const init = (container) => {
     document.addEventListener('gotoNardItem', container._nardGotoHandler);
 
     loadNards();
+
+    // 분리된 에디터 로직 초기화
+    initEditorEvents(container);
+    injectSettingsModal(container);
 };

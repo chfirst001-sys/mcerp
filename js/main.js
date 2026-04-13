@@ -144,6 +144,9 @@ if (globalAddNardBtn) {
         if (currentLoadedModule === 'nard') {
             // 이미 나드 탭인 경우 바로 모달 오픈 이벤트 발생
             document.dispatchEvent(new CustomEvent('openNardModal'));
+            } else if (currentLoadedModule === 'kanban') {
+                // 칸반 탭인 경우 전용 모달 오픈 이벤트 발생
+                document.dispatchEvent(new CustomEvent('openKanbanAddModal'));
         } else {
             // 다른 탭인 경우 나드 탭으로 이동 후 모달 오픈 (플래그 사용)
             window._triggerNewNard = true;
