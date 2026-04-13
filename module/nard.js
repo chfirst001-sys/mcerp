@@ -230,7 +230,6 @@ export const init = (container) => {
                     const dateStr = item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('ko-KR', {month:'short', day:'numeric'}) : '';
                     const artBgStyle = (item.artBg && item.artBg !== '#ffffff') ? `background-color: ${item.artBg} !important; border-color: ${item.artBg} !important;` : 'background: #fff;';
                     html += `
-                        <div class="memo-card" data-id="${item.id}" style="background: #fff; position: relative; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; flex-direction: column; height: 160px; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                         <div class="memo-card" data-id="${item.id}" style="${artBgStyle} position: relative; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; flex-direction: column; height: 160px; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                             ${favIcon}
                             <div style="font-weight: bold; font-size: 14px; color: #2c3e50; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 24px;">${escapeHtml(item.title || '제목 없음')}</div>
@@ -408,7 +407,6 @@ export const init = (container) => {
                 html += `
                     <li style="margin: 6px 0; position: relative;" id="nard-node-${item.id}" class="nard-drag-item" data-id="${item.id}">
                         <div style="display: flex; align-items: flex-start; gap: 8px; width: 100%;">
-                            <div class="nard-main-card" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: ${isExpanded ? '12px' : '8px 10px'}; border-radius: 8px; background: #fff; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); ${isExpanded ? 'flex: 1;' : 'width: fit-content;'} min-width: ${isExpanded ? '280px' : 'auto'}; transition: all 0.3s ease;" onmouseover="this.style.borderColor='#bdc3c7'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.08)';" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';">
                             <div class="nard-main-card" style="${artBgStyle} display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: ${isExpanded ? '12px' : '8px 10px'}; border-radius: 8px; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); ${isExpanded ? 'flex: 1;' : 'width: fit-content;'} min-width: ${isExpanded ? '280px' : 'auto'}; transition: all 0.3s ease;" onmouseover="this.style.borderColor='#bdc3c7'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.08)';" onmouseout="this.style.borderColor='#e0e0e0'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';">
                                 <div style="display: flex; align-items: flex-start; gap: 8px; overflow: hidden; ${isExpanded ? 'flex: 1;' : 'width: 100px;'}">
                                     <button class="content-toggle-btn" data-id="${item.id}" style="background: none; border: none; padding: 0; cursor: ${toggleButtonCursor}; color: ${toggleButtonColor}; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0; transition: background 0.2s;" ${toggleButtonHover}>
@@ -768,12 +766,10 @@ export const init = (container) => {
             const nard = nardData.find(m => m.id === targetId);
             if (nard) { 
                 nard.title = title; nard.content = content; nard.updatedAt = Date.now(); nard.isFavorite = currentEditIsFavorite; 
-                nard.showInKanban = showInKanban; nard.status = status; nard.dueDate = dueDate;
                 nard.showInKanban = showInKanban; nard.status = status; nard.dueDate = dueDate; nard.docType = docType; nard.artBg = artBg;
             }
         } else {
             targetId = 'nard_' + Date.now();
-            nardData.push({ id: targetId, parentId: parentId, title: title, content: content, createdAt: Date.now(), updatedAt: Date.now(), isFavorite: currentEditIsFavorite, showInKanban, status, dueDate });
             nardData.push({ id: targetId, parentId: parentId, title: title, content: content, createdAt: Date.now(), updatedAt: Date.now(), isFavorite: currentEditIsFavorite, showInKanban, status, dueDate, docType, artBg });
             if (parentId) collapsedStates[parentId] = false;
             // 임시저장된 내용을 영구 저장했으므로, 임시저장소 비우기

@@ -12,7 +12,7 @@ export const init = (container) => {
         currentBuildingNameEl.textContent = selectedBuildingName;
     }
 
-    // 모드에 따라 렌더링 분기
+    // 모드에 따라 렌더링 분기 1
     if (!selectedBuildingId) {
         renderAllBuildingsDashboard(container);
     } else {
