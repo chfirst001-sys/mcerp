@@ -123,6 +123,9 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
             });
         }
 
+        const now = new Date();
+        const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
         // 광장(커뮤니티) 안 읽은 새 게시물 확인 로직
         let unreadCount = 0;
         let latestUnreadPost = null;
@@ -158,6 +161,8 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
                 </div>
             </div>
 
+            <div id="dashboardBillingSection"></div>
+
             ${unreadCount > 0 ? `
                 <div style="background: #e8f4f8; border-radius: 8px; padding: 12px 15px; border-left: 4px solid #2980b9; display: flex; align-items: center; justify-content: space-between; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05);" onclick="document.querySelector('.tab-item[data-module=\\'plaza\\']').click();">
                     <div style="flex: 1; overflow: hidden;">
@@ -173,6 +178,145 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
                 </div>
             ` : ''}
         `;
+
+        // ---------------------------------------------------------
+        // 동적 부과 설정 현황 업데이트 로직 (과거 월 조회, 총액, 증감, 평균)
+        // ---------------------------------------------------------
+        const getPrevMonthStr = (monthStr, offset = 1) => {
+            let [y, m] = monthStr.split('-').map(Number);
+            m -= offset;
+            while (m <= 0) { m += 12; y -= 1; }
+            return `${y}-${String(m).padStart(2, '0')}`;
+        };
+
+        const getBillingData = (monthStr) => {
+            let total = 0, fixedCount = 0, variableCount = 0, periodicCount = 0, otherCount = 0;
+            const variableItemsList = ['공용전기', '세대전기', '공용수도', '세대수도', '가스', '전화', '인터넷', '비상통화장치'];
+            const periodicItemsList = ['승강기보험', '주차기안전보험', '화재보험', '영업배상책임보험', '어린이놀이시설보험', '시설물배상보험', '승강기 정기검사', '승강기 정밀검사', '발전기검사', '전기안전검사', '주차기 검사', '주차기 정밀검사', '건축물안전검사', '장기수선충당금', '수선적립금', '건물수선비'];
+
+            const getCat = (name, customCat) => {
+                if (customCat) return customCat;
+                if (variableItemsList.includes(name)) return 'variable';
+                if (periodicItemsList.includes(name)) return 'periodic';
+                return 'fixed';
+            };
+
+            if (bData.billingHistory && bData.billingHistory[monthStr]) {
+                const hist = bData.billingHistory[monthStr];
+                total = hist.totalSum || 0;
+                const items = hist.items || {};
+                for (const [k, v] of Object.entries(items)) {
+                    const cat = getCat(k, v.customCategory);
+                    if (cat === 'variable') variableCount++;
+                    else if (cat === 'periodic') periodicCount++;
+                    else fixedCount++;
+                }
+                otherCount = (hist.otherItems || []).length;
+                return { total, fixedCount, variableCount, periodicCount, otherCount, isFinalized: true };
+            } else {
+                const items = bData.expenseConfig || {};
+                for (const [k, v] of Object.entries(items)) {
+                    total += Number(v.monthlyAmount) || 0;
+                    const cat = getCat(k, v.customCategory);
+                    if (cat === 'variable') variableCount++;
+                    else if (cat === 'periodic') periodicCount++;
+                    else fixedCount++;
+                }
+                const others = bData.otherExpenses ? (bData.otherExpenses[monthStr] || []) : [];
+                otherCount = others.length;
+                others.forEach(o => total += Number(o.amount) || 0);
+                return { total, fixedCount, variableCount, periodicCount, otherCount, isFinalized: false };
+            }
+        };
+
+        const updateBillingSection = (targetMonth) => {
+            const billingSection = document.getElementById('dashboardBillingSection');
+            if (!billingSection) return;
+
+            const currData = getBillingData(targetMonth);
+            const prev1Data = getBillingData(getPrevMonthStr(targetMonth, 1));
+            const prev2Data = getBillingData(getPrevMonthStr(targetMonth, 2));
+            const prev3Data = getBillingData(getPrevMonthStr(targetMonth, 3));
+
+            const diff = currData.total - prev1Data.total;
+            let diffStr = '-';
+            let diffColor = '#7f8c8d';
+            
+            if (prev1Data.total > 0 || currData.total > 0) {
+                if (diff > 0) { diffStr = `+${diff.toLocaleString()} 원 ▲`; diffColor = '#e74c3c'; }
+                else if (diff < 0) { diffStr = `${Math.abs(diff).toLocaleString()} 원 ▼`; diffColor = '#2980b9'; }
+                else { diffStr = '변동 없음 -'; diffColor = '#7f8c8d'; }
+            }
+
+            let sum3 = 0, count3 = 0;
+            if (prev1Data.total > 0) { sum3 += prev1Data.total; count3++; }
+            if (prev2Data.total > 0) { sum3 += prev2Data.total; count3++; }
+            if (prev3Data.total > 0) { sum3 += prev3Data.total; count3++; }
+            
+            const avg3 = count3 > 0 ? Math.round(sum3 / count3) : 0;
+            const avg3Str = avg3 > 0 ? `${avg3.toLocaleString()} 원` : '데이터 부족';
+
+            billingSection.innerHTML = `
+                <div style="background: #fff; border-radius: 8px; padding: 15px; margin-bottom: 20px; border: 1px solid #eee; box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='#fff'" onclick="document.querySelector('.tab-item[data-module=\\'accounting\\']').click();">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h4 style="margin: 0; color: #2c3e50; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+                            <span class="material-symbols-outlined" style="font-size: 18px; color: #2980b9;">receipt_long</span> 
+                            부과 설정 현황
+                        </h4>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="month" id="dashBillingMonth" value="${targetMonth}" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; outline: none; cursor: pointer; background: #fdfefe;" onclick="event.stopPropagation();">
+                            <span class="material-symbols-outlined" style="color: #bdc3c7; font-size: 16px;">chevron_right</span>
+                        </div>
+                    </div>
+
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px;">
+                            <div>
+                                <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                                    총 부과 ${currData.isFinalized ? '확정액' : '예정액'}
+                                    ${currData.isFinalized ? '<span style="background:#27ae60; color:white; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:bold;">확정됨</span>' : '<span style="background:#f39c12; color:white; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:bold;">예정</span>'}
+                                </div>
+                                <strong style="font-size: 22px; color: #2c3e50;">${currData.total.toLocaleString()}</strong> <span style="font-size: 13px; color: #34495e;">원</span>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="font-size: 11px; color: #7f8c8d; margin-bottom: 4px;">전월 대비 증감</div>
+                                <div style="font-size: 14px; font-weight: bold; color: ${diffColor};">${diffStr}</div>
+                            </div>
+                        </div>
+                        <div style="border-top: 1px dashed #dcdde1; padding-top: 10px; font-size: 12px; color: #7f8c8d; display: flex; justify-content: space-between;">
+                            <span>최근 3개월 평균:</span>
+                            <strong style="color: #34495e;">${avg3Str}</strong>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; color: #34495e;">
+                        <div style="text-align: center; flex: 1;">
+                            <div style="color: #7f8c8d; margin-bottom: 4px;">고정지출</div>
+                            <strong style="font-size: 16px; color: #2c3e50;">${currData.fixedCount}</strong>건
+                        </div>
+                        <div style="text-align: center; flex: 1; border-left: 1px solid #eee;">
+                            <div style="color: #7f8c8d; margin-bottom: 4px;">변동지출</div>
+                            <strong style="font-size: 16px; color: #2c3e50;">${currData.variableCount}</strong>건
+                        </div>
+                        <div style="text-align: center; flex: 1; border-left: 1px solid #eee;">
+                            <div style="color: #7f8c8d; margin-bottom: 4px;">주기지출</div>
+                            <strong style="font-size: 16px; color: #2c3e50;">${currData.periodicCount}</strong>건
+                        </div>
+                        <div style="text-align: center; flex: 1; border-left: 1px solid #eee;">
+                            <div style="color: #7f8c8d; margin-bottom: 4px;">기타지출</div>
+                            <strong style="font-size: 16px; color: #2c3e50;">${currData.otherCount}</strong>건
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('dashBillingMonth').addEventListener('change', (e) => {
+                updateBillingSection(e.target.value);
+            });
+        };
+
+        updateBillingSection(currentMonthStr);
+
     } catch (error) {
         console.error("대시보드 로드 실패:", error);
         container.innerHTML = '<div style="color:red; text-align: center;">오류가 발생했습니다.</div>';

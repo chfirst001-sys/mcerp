@@ -228,15 +228,15 @@ export const init = (container) => {
             { title: 'A. 일반관리', items: ['위탁관리', '인건비(관리소장)', '인건비(경리)', '인건비(경비)', '인건비(미화)'] },
             { title: 'B. 안전관리', items: ['승강기안전', '소방안전', '전기안전', '주차기안전'] },
             { title: 'C. 미화ㆍ위생', items: ['청소ㆍ미화', '저수조청소', '수질검사', '방역', '정화조청소'] },
-            { title: 'D. 통신비', items: ['전화', '인터넷', '비상통화장치'] },
-            { title: 'E. 보안', items: ['CCTV', '보안업체'] },
-            { title: 'F. 주차비', items: ['주차비'] }
+            { title: 'D. 보안', items: ['CCTV', '보안업체'] },
+            { title: 'E. 주차비', items: ['주차비'] }
         ]);
         // 6단계 변동지출 생성
         renderExpenseGroup('expense-step6-container', [
             { title: 'A. 전기', items: ['공용전기', '세대전기'] },
             { title: 'B. 수도', items: ['공용수도', '세대수도'] },
-            { title: 'C. 가스', items: ['가스'] }
+            { title: 'C. 가스', items: ['가스'] },
+            { title: 'D. 통신비', items: ['전화', '인터넷', '비상통화장치'] }
         ]);
         // 7단계 주기납부 생성
         renderExpenseGroup('expense-step7-container', [

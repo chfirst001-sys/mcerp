@@ -3,6 +3,7 @@ import { db, escapeHtml } from "../../js/main.js";
 
 let currentExpenseConfig = {};
 let otherExpensesConfig = {};
+let currentEditGroupId = null;
 
 export const render = async (container) => {
     const bId = localStorage.getItem('selectedBuildingId');
@@ -63,6 +64,18 @@ export const render = async (container) => {
                 </div>
             </div>
         </div>
+
+        <!-- 항목 편집 모달 -->
+        <div id="editItemsModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 4500; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); display: flex; flex-direction: column; max-height: 80vh;">
+                <h3 id="editItemsModalTitle" style="margin-top: 0; color: #2c3e50; margin-bottom: 15px;">항목 추가/삭제</h3>
+                <div id="editItemsContainer" style="overflow-y: auto; flex: 1; margin-bottom: 15px; padding-right: 5px;"></div>
+                <div style="display: flex; gap: 10px;">
+                    <button id="saveEditItemsBtn" style="flex: 1; background: #27ae60; padding: 12px; font-size: 14px; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">저장</button>
+                    <button id="cancelEditItemsBtn" style="flex: 1; background: #95a5a6; padding: 12px; font-size: 14px; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">취소</button>
+                </div>
+            </div>
+        </div>
     `;
 
     const adjContent = document.getElementById('adjContent');
@@ -71,13 +84,13 @@ export const render = async (container) => {
         const docSnap = await getDoc(doc(db, "buildings", bId));
         if (!docSnap.exists()) return;
         
-        const savedItems = docSnap.data().expenseItems || [];
+        let savedItems = docSnap.data().expenseItems || [];
         currentExpenseConfig = docSnap.data().expenseConfig || {}; 
         otherExpensesConfig = docSnap.data().otherExpenses || {}; 
 
         const masterGroups = {
-            fixed: [{ title: 'A. 일반관리', items: ['위탁관리', '인건비(관리소장)', '인건비(경리)', '인건비(경비)', '인건비(미화)'] }, { title: 'B. 안전관리', items: ['승강기안전', '소방안전', '전기안전', '주차기안전'] }, { title: 'C. 미화ㆍ위생', items: ['청소ㆍ미화', '저수조청소', '수질검사', '방역', '정화조청소'] }, { title: 'D. 통신비', items: ['전화', '인터넷', '비상통화장치'] }, { title: 'E. 보안', items: ['CCTV', '보안업체'] }, { title: 'F. 주차비', items: ['주차비'] }],
-            variable: [{ title: 'A. 전기', items: ['공용전기', '세대전기'] }, { title: 'B. 수도', items: ['공용수도', '세대수도'] }, { title: 'C. 가스', items: ['가스'] }],
+            fixed: [{ title: 'A. 일반관리', items: ['위탁관리', '인건비(관리소장)', '인건비(경리)', '인건비(경비)', '인건비(미화)'] }, { title: 'B. 안전관리', items: ['승강기안전', '소방안전', '전기안전', '주차기안전'] }, { title: 'C. 미화ㆍ위생', items: ['청소ㆍ미화', '저수조청소', '수질검사', '방역', '정화조청소'] }, { title: 'D. 보안', items: ['CCTV', '보안업체'] }, { title: 'E. 주차비', items: ['주차비'] }],
+            variable: [{ title: 'A. 전기', items: ['공용전기', '세대전기'] }, { title: 'B. 수도', items: ['공용수도', '세대수도'] }, { title: 'C. 가스', items: ['가스'] }, { title: 'D. 통신비', items: ['전화', '인터넷', '비상통화장치'] }],
             periodic: [{ title: 'A. 보험', items: ['승강기보험', '주차기안전보험', '화재보험', '영업배상책임보험', '어린이놀이시설보험', '시설물배상보험'] }, { title: 'B. 검사비', items: ['승강기 정기검사', '승강기 정밀검사', '발전기검사', '전기안전검사', '주차기 검사', '주차기 정밀검사', '건축물안전검사'] }, { title: 'C. 예치', items: ['장기수선충당금', '수선적립금', '건물수선비'] }]
         };
 
@@ -87,6 +100,9 @@ export const render = async (container) => {
                     if (g.items.includes(itemName)) return cat;
                 }
             }
+            if (currentExpenseConfig[itemName] && currentExpenseConfig[itemName].customCategory) {
+                return currentExpenseConfig[itemName].customCategory;
+            }
             return 'fixed';
         };
 
@@ -95,52 +111,156 @@ export const render = async (container) => {
                 const now = new Date();
                 let selectedMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-                const renderSummary = (monthStr) => {
-                    let fixedSum = 0, variableSum = 0, periodicSum = 0;
-                    for (const [itemName, config] of Object.entries(currentExpenseConfig)) {
-                        const amt = Number(config.monthlyAmount) || 0;
-                        const cat = getCategory(itemName);
-                        if (cat === 'fixed') fixedSum += amt;
-                        else if (cat === 'variable') variableSum += amt;
-                        else if (cat === 'periodic') periodicSum += amt;
-                    }
+                const updateSummaryView = async () => {
+                    const container = document.getElementById('summaryContainer');
+                    if (!container) return;
+                    container.innerHTML = '<div style="padding: 20px; text-align: center; color: #7f8c8d;">요약 데이터를 불러오는 중...</div>';
                     
-                    let otherSum = 0;
-                    const otherItems = otherExpensesConfig[monthStr] || [];
-                    otherItems.forEach(i => otherSum += Number(i.amount));
+                    try {
+                        const bDocSnap = await getDoc(doc(db, "buildings", bId));
+                        const billingHistory = bDocSnap.exists() && bDocSnap.data().billingHistory ? bDocSnap.data().billingHistory : {};
+                        const isFinalized = !!billingHistory[selectedMonth];
+                        const histData = billingHistory[selectedMonth];
 
-                    const totalSum = fixedSum + variableSum + periodicSum + otherSum;
-                    
-                    return `
-                        <div style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background: #fff; margin-bottom: 15px;">
-                            <div style="background: #2980b9; color: white; padding: 15px; font-weight: bold; font-size: 15px;">
-                                ${monthStr} 부과 예정 금액 요약
+                        let fixedSum = 0, variableSum = 0, periodicSum = 0, otherSum = 0, totalSum = 0;
+                        let finalizedDateStr = '';
+
+                        if (isFinalized) {
+                            fixedSum = histData.fixedSum || 0;
+                            variableSum = histData.variableSum || 0;
+                            periodicSum = histData.periodicSum || 0;
+                            otherSum = histData.otherSum || 0;
+                            totalSum = histData.totalSum || 0;
+                            finalizedDateStr = `<div style="font-size:12px; color:#27ae60; margin-top:5px; font-weight:bold;">✅ 확정일시: ${new Date(histData.finalizedAt).toLocaleString()}</div>`;
+                        } else {
+                            for (const [itemName, config] of Object.entries(currentExpenseConfig)) {
+                                const amt = Number(config.monthlyAmount) || 0;
+                                const cat = getCategory(itemName);
+                                if (cat === 'fixed') fixedSum += amt;
+                                else if (cat === 'variable') variableSum += amt;
+                                else if (cat === 'periodic') periodicSum += amt;
+                            }
+                            
+                            const otherItems = otherExpensesConfig[selectedMonth] || [];
+                            otherItems.forEach(i => otherSum += Number(i.amount));
+
+                            totalSum = fixedSum + variableSum + periodicSum + otherSum;
+                        }
+
+                        container.innerHTML = `
+                            <div style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background: #fff; margin-bottom: 15px;">
+                                <div style="background: ${isFinalized ? '#27ae60' : '#2980b9'}; color: white; padding: 15px; font-weight: bold; font-size: 15px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span>${selectedMonth} 부과 ${isFinalized ? '확정' : '예정'} 금액 요약</span>
+                                    ${isFinalized ? '<span style="background: white; color: #27ae60; padding: 2px 8px; border-radius: 12px; font-size: 11px;">확정됨</span>' : '<span style="background: #f39c12; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px;">예정</span>'}
+                                </div>
+                                <div style="padding: 15px; display: flex; flex-direction: column; gap: 10px; font-size: 14px;">
+                                    ${finalizedDateStr}
+                                    <div style="display: flex; justify-content: space-between; margin-top: ${isFinalized ? '10px' : '0'};">
+                                        <span style="color: #7f8c8d;">고정지출 합계:</span>
+                                        <strong>${fixedSum.toLocaleString()} 원</strong>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between;">
+                                        <span style="color: #7f8c8d;">변동지출 합계:</span>
+                                        <strong>${variableSum.toLocaleString()} 원</strong>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between;">
+                                        <span style="color: #7f8c8d;">주기지출 합계:</span>
+                                        <strong>${periodicSum.toLocaleString()} 원</strong>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; border-top: 1px dashed #eee; padding-top: 10px;">
+                                        <span style="color: #7f8c8d;">기타지출 합계:</span>
+                                        <strong style="color: #2c3e50;">${otherSum.toLocaleString()} 원</strong>
+                                    </div>
+                                    <hr style="border: 0; border-top: 1px dashed #ccc; margin: 10px 0;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 16px; color: #e74c3c;">
+                                        <strong>총 부과 ${isFinalized ? '확정액' : '예정액'}:</strong>
+                                        <strong>${totalSum.toLocaleString()} 원</strong>
+                                    </div>
+                                </div>
                             </div>
-                            <div style="padding: 15px; display: flex; flex-direction: column; gap: 10px; font-size: 14px;">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span style="color: #7f8c8d;">고정지출 합계:</span>
-                                    <strong>${fixedSum.toLocaleString()} 원</strong>
-                                </div>
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span style="color: #7f8c8d;">변동지출 합계:</span>
-                                    <strong>${variableSum.toLocaleString()} 원</strong>
-                                </div>
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span style="color: #7f8c8d;">주기지출 합계:</span>
-                                    <strong>${periodicSum.toLocaleString()} 원</strong>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; border-top: 1px dashed #eee; padding-top: 10px;">
-                                    <span style="color: #7f8c8d;">기타지출 합계:</span>
-                                    <strong style="color: #2c3e50;">${otherSum.toLocaleString()} 원</strong>
-                                </div>
-                                <hr style="border: 0; border-top: 1px dashed #ccc; margin: 10px 0;">
-                                <div style="display: flex; justify-content: space-between; font-size: 16px; color: #e74c3c;">
-                                    <strong>총 부과 예정액:</strong>
-                                    <strong>${totalSum.toLocaleString()} 원</strong>
-                                </div>
-                            </div>
-                        </div>
-                    `;
+                            ${isFinalized 
+                                ? `<button id="unfinalizeBillBtn" style="background: #e74c3c; color: white; border: none; padding: 12px 20px; font-size: 14px; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"><span class="material-symbols-outlined" style="font-size: 18px;">edit</span> 수정 모드로 전환 (확정 취소)</button>` 
+                                : `<button id="finalizeBillBtn" style="background: #27ae60; color: white; border: none; padding: 12px 20px; font-size: 14px; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"><span class="material-symbols-outlined" style="font-size: 18px;">check_circle</span> 이 달의 부과내역 확정하기</button>`
+                            }
+                        `;
+                        attachSummaryEvents();
+                    } catch(err) {
+                        container.innerHTML = '<div style="color:red; text-align: center;">데이터를 불러오는 중 오류가 발생했습니다.</div>';
+                    }
+                };
+
+                const attachSummaryEvents = () => {
+                    const finalizeBtn = document.getElementById('finalizeBillBtn');
+                    if (finalizeBtn) {
+                        finalizeBtn.addEventListener('click', async () => {
+                            const monthVal = selectedMonth;
+                            if (!monthVal) { alert('월을 선택해주세요.'); return; }
+                            if (!confirm(`[${monthVal}] 월의 부과내역을 이대로 확정하시겠습니까?`)) return;
+
+                            finalizeBtn.disabled = true; finalizeBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">sync</span> 확정 중...';
+
+                            try {
+                                const snap = await getDoc(doc(db, "buildings", bId));
+                                let billingHistory = snap.exists() && snap.data().billingHistory ? snap.data().billingHistory : {};
+
+                                let fSum = 0, vSum = 0, pSum = 0;
+                                for (const [itemName, config] of Object.entries(currentExpenseConfig)) {
+                                    const amt = Number(config.monthlyAmount) || 0;
+                                    const cat = getCategory(itemName);
+                                    if (cat === 'fixed') fSum += amt;
+                                    else if (cat === 'variable') vSum += amt;
+                                    else if (cat === 'periodic') pSum += amt;
+                                }
+                                let oSum = 0;
+                                const oItems = otherExpensesConfig[monthVal] || [];
+                                oItems.forEach(i => oSum += Number(i.amount));
+                                
+                                billingHistory[monthVal] = {
+                                    fixedSum: fSum, variableSum: vSum, periodicSum: pSum, otherSum: oSum, totalSum: fSum + vSum + pSum + oSum,
+                                    items: currentExpenseConfig,
+                                    otherItems: oItems,
+                                    finalizedAt: new Date().toISOString()
+                                };
+
+                                await updateDoc(doc(db, "buildings", bId), { billingHistory });
+                                alert(`${monthVal} 월 부과내역이 확정되었습니다.\n'세대부과' 탭에서 고지서 내역을 확인할 수 있습니다.`);
+                                updateSummaryView();
+                            } catch (err) {
+                                console.error(err);
+                                alert('확정 중 오류가 발생했습니다.');
+                                finalizeBtn.disabled = false; finalizeBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">check_circle</span> 이 달의 부과내역 확정하기';
+                            }
+                        });
+                    }
+
+                    const unfinalizeBtn = document.getElementById('unfinalizeBillBtn');
+                    if (unfinalizeBtn) {
+                        unfinalizeBtn.addEventListener('click', async () => {
+                            const monthVal = selectedMonth;
+                            if (!confirm(`⚠️ 강력 경고: [${monthVal}] 월의 부과 확정을 취소하시겠습니까?\n\n이미 입주민에게 고지서가 발송되었거나 수납이 진행 중인 상태에서 부과 금액을 변경하면, 시스템상 미납/과납금이 발생하여 장부가 심각하게 틀어질 수 있습니다.\n\n원칙적으로는 과거 내역 수정 대신 다음 달 '기타 지출'에 정산액을 추가하는 것이 안전합니다.\n\n그럼에도 불구하고 강제로 수정 모드로 전환하시겠습니까?`)) return;
+                            
+                            unfinalizeBtn.disabled = true; unfinalizeBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">sync</span> 전환 중...';
+                            
+                            try {
+                                const snap = await getDoc(doc(db, "buildings", bId));
+                                let billingHistory = snap.exists() && snap.data().billingHistory ? snap.data().billingHistory : {};
+                                
+                                if (billingHistory[monthVal]) {
+                                    delete billingHistory[monthVal];
+                                    await updateDoc(doc(db, "buildings", bId), { billingHistory });
+                                    alert('수정 모드로 전환되었습니다. 변경 사항을 조정한 뒤 반드시 다시 확정해주세요.');
+                                    updateSummaryView();
+                                } else {
+                                    alert('이미 취소된 상태입니다.');
+                                    updateSummaryView();
+                                }
+                            } catch (err) {
+                                console.error(err);
+                                alert('전환 중 오류가 발생했습니다.');
+                                unfinalizeBtn.disabled = false; unfinalizeBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">edit</span> 수정 모드로 전환 (확정 취소)';
+                            }
+                        });
+                    }
                 };
 
                 adjContent.innerHTML = `
@@ -148,55 +268,15 @@ export const render = async (container) => {
                         <label style="font-size: 13px; color: #34495e; font-weight: bold; margin-right: 10px;">부과 월 선택:</label>
                         <input type="month" id="finalizeMonth" value="${selectedMonth}" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 150px; margin: 0;">
                     </div>
-                    <div id="summaryContainer">${renderSummary(selectedMonth)}</div>
-                    <button id="finalizeBillBtn" style="background: #27ae60; color: white; border: none; padding: 12px 20px; font-size: 14px; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%;">이 달의 부과내역 확정하기</button>
+                    <div id="summaryContainer"></div>
                 `;
 
                 document.getElementById('finalizeMonth').addEventListener('change', (e) => {
                     selectedMonth = e.target.value;
-                    document.getElementById('summaryContainer').innerHTML = renderSummary(selectedMonth);
+                    updateSummaryView();
                 });
-
-                document.getElementById('finalizeBillBtn').addEventListener('click', async () => {
-                    const monthVal = selectedMonth;
-                    if (!monthVal) { alert('월을 선택해주세요.'); return; }
-                    if (!confirm(`[${monthVal}] 월의 부과내역을 이대로 확정하시겠습니까?`)) return;
-
-                    const btn = document.getElementById('finalizeBillBtn');
-                    btn.disabled = true; btn.textContent = '확정 중...';
-
-                    try {
-                        const snap = await getDoc(doc(db, "buildings", bId));
-                        let billingHistory = snap.exists() && snap.data().billingHistory ? snap.data().billingHistory : {};
-
-                        let fSum = 0, vSum = 0, pSum = 0;
-                        for (const [itemName, config] of Object.entries(currentExpenseConfig)) {
-                            const amt = Number(config.monthlyAmount) || 0;
-                            const cat = getCategory(itemName);
-                            if (cat === 'fixed') fSum += amt;
-                            else if (cat === 'variable') vSum += amt;
-                            else if (cat === 'periodic') pSum += amt;
-                        }
-                        let oSum = 0;
-                        const oItems = otherExpensesConfig[monthVal] || [];
-                        oItems.forEach(i => oSum += Number(i.amount));
-                        
-                        billingHistory[monthVal] = {
-                            fixedSum: fSum, variableSum: vSum, periodicSum: pSum, otherSum: oSum, totalSum: fSum + vSum + pSum + oSum,
-                            items: currentExpenseConfig,
-                            otherItems: oItems,
-                            finalizedAt: new Date().toISOString()
-                        };
-
-                        await updateDoc(doc(db, "buildings", bId), { billingHistory });
-                        alert(`${monthVal} 월 부과내역이 확정되었습니다.\n'부과기록' 탭에서 확인할 수 있습니다.`);
-                    } catch (err) {
-                        console.error(err);
-                        alert('확정 중 오류가 발생했습니다.');
-                    } finally {
-                        btn.disabled = false; btn.textContent = '이 달의 부과내역 확정하기';
-                    }
-                });
+                
+                updateSummaryView();
                 return;
             }
             if (groupId === 'past_records') {
@@ -397,18 +477,51 @@ export const render = async (container) => {
             }
 
             let html = '';
+            let listHtml = '';
             let hasAnyItem = false;
+
+            let groupTitleStr = groupId === 'fixed' ? '고정지출' : (groupId === 'variable' ? '변동지출' : '주기지출');
+            html += `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #e0e0e0;">
+                    <h4 style="margin: 0; color: #2c3e50; display: flex; align-items: center; gap: 6px;">
+                        <span class="material-symbols-outlined" style="color: #2980b9;">list_alt</span> ${groupTitleStr} 항목
+                    </h4>
+                    <button class="edit-items-btn" data-group="${groupId}" style="background: #e8f4f8; border: 1px solid #bce0fd; color: #2980b9; padding: 6px 12px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: bold; transition: background 0.2s;" onmouseover="this.style.background='#d6eaf8'" onmouseout="this.style.background='#e8f4f8'">
+                        <span class="material-symbols-outlined" style="font-size: 16px;">edit</span> 항목 추가/삭제
+                    </button>
+                </div>
+            `;
+
+            const allMasterItems = new Set();
+            Object.values(masterGroups).forEach(arr => arr.forEach(g => g.items.forEach(i => allMasterItems.add(i))));
+
+            const getCustomItemsForGroup = (catId) => {
+                return savedItems.filter(item => {
+                    if (allMasterItems.has(item)) return false;
+                    const config = currentExpenseConfig[item] || {};
+                    const cCat = config.customCategory || 'fixed';
+                    return cCat === catId;
+                });
+            };
+            const currentCustomItems = getCustomItemsForGroup(groupId);
+
             masterGroups[groupId].forEach(g => {
-                const matchedItems = g.items.filter(item => savedItems.includes(item));
+                const predefinedMatched = g.items.filter(item => savedItems.includes(item));
+                const customMatched = currentCustomItems.filter(item => {
+                    const config = currentExpenseConfig[item] || {};
+                    return config.customGroup === g.title;
+                });
+                const matchedItems = [...predefinedMatched, ...customMatched];
+                
                 if (matchedItems.length > 0) {
                     hasAnyItem = true;
-                    html += `
+                    listHtml += `
                         <div style="margin-bottom: 15px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
                             <div style="background: #f8f9fa; padding: 10px 15px; font-weight: bold; color: #2c3e50; border-bottom: 1px solid #e0e0e0; font-size: 13px;">${g.title}</div>
                             <div style="padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;">
                                 ${matchedItems.map(item => `
                                     <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px dashed #f0f0f0;">
-                                        <span class="expense-item-name" data-item="${escapeHtml(item)}" style="font-size: 14px; color: #2980b9; font-weight: bold; cursor: pointer; text-decoration: underline;" title="상세 정보 입력">${escapeHtml(item)}</span>
+                                        <span class="expense-item-name" data-item="${escapeHtml(item)}" style="font-size: 14px; color: ${!g.items.includes(item) ? '#8e44ad' : '#2980b9'}; font-weight: bold; cursor: pointer; text-decoration: underline;" title="상세 정보 입력">${escapeHtml(item)}</span>
                                         <div style="display: flex; align-items: center; gap: 5px;">
                                             <input type="text" class="expense-amount-input" data-item="${escapeHtml(item)}" value="${currentExpenseConfig[item]?.monthlyAmount ? Number(currentExpenseConfig[item].monthlyAmount).toLocaleString() : ''}" placeholder="0" style="margin: 0; padding: 6px 10px; width: 120px; font-size: 13px; text-align: right; border: 1px solid #ccc; border-radius: 4px;">
                                             <span style="font-size: 13px; color: #7f8c8d;">원</span>
@@ -421,20 +534,21 @@ export const render = async (container) => {
                 }
             });
 
-        if (groupId === 'fixed') {
-            const allMasterItems = new Set();
-            Object.values(masterGroups).forEach(arr => arr.forEach(g => g.items.forEach(i => allMasterItems.add(i))));
-            const customItems = savedItems.filter(item => !allMasterItems.has(item));
-            
-            if (customItems.length > 0) {
+            const otherCustomItems = currentCustomItems.filter(item => {
+                const config = currentExpenseConfig[item] || {};
+                const grp = config.customGroup || '기타';
+                return grp === '기타';
+            });
+
+            if (otherCustomItems.length > 0) {
                 hasAnyItem = true;
-                html += `
+                listHtml += `
                     <div style="margin-bottom: 15px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
                         <div style="background: #f8f9fa; padding: 10px 15px; font-weight: bold; color: #2c3e50; border-bottom: 1px solid #e0e0e0; font-size: 13px;">기타 (사용자 직접 추가 항목)</div>
                         <div style="padding: 10px 15px; display: flex; flex-direction: column; gap: 8px;">
-                            ${customItems.map(item => `
+                            ${otherCustomItems.map(item => `
                                 <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px dashed #f0f0f0;">
-                                    <span class="expense-item-name" data-item="${escapeHtml(item)}" style="font-size: 14px; color: #2980b9; font-weight: bold; cursor: pointer; text-decoration: underline;" title="상세 정보 입력">${escapeHtml(item)}</span>
+                                    <span class="expense-item-name" data-item="${escapeHtml(item)}" style="font-size: 14px; color: #8e44ad; font-weight: bold; cursor: pointer; text-decoration: underline;" title="상세 정보 입력">${escapeHtml(item)}</span>
                                     <div style="display: flex; align-items: center; gap: 5px;">
                                         <input type="text" class="expense-amount-input" data-item="${escapeHtml(item)}" value="${currentExpenseConfig[item]?.monthlyAmount ? Number(currentExpenseConfig[item].monthlyAmount).toLocaleString() : ''}" placeholder="0" style="margin: 0; padding: 6px 10px; width: 120px; font-size: 13px; text-align: right; border: 1px solid #ccc; border-radius: 4px;">
                                         <span style="font-size: 13px; color: #7f8c8d;">원</span>
@@ -445,11 +559,11 @@ export const render = async (container) => {
                     </div>
                 `;
             }
-        }
 
             if (!hasAnyItem) {
-                html = '<div style="color:#7f8c8d; padding:20px; text-align:center; background:#f8f9fa; border-radius:8px;">이 그룹에 해당하는 지출 항목이 없습니다.</div>';
+                html += '<div style="color:#7f8c8d; padding:20px; text-align:center; background:#f8f9fa; border-radius:8px; border: 1px dashed #ccc;">이 그룹에 해당하는 지출 항목이 없습니다. 상단의 버튼을 눌러 항목을 추가해보세요.</div>';
             } else {
+                html += listHtml;
                 html += '<button id="saveAdjBtn" style="width: 100%; background: #27ae60; color: white; margin-top: 10px; font-size: 14px; padding: 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">입력 금액 및 상세 설정 저장</button>';
             }
 
@@ -479,6 +593,113 @@ export const render = async (container) => {
                 }
             });
         }
+
+        adjContent.querySelectorAll('.edit-items-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                currentEditGroupId = e.currentTarget.dataset.group;
+                const groupData = masterGroups[currentEditGroupId];
+                
+                const allMasterItems = new Set();
+                Object.values(masterGroups).forEach(arr => arr.forEach(g => g.items.forEach(i => allMasterItems.add(i))));
+                
+                const currentCustomItems = savedItems.filter(item => {
+                    if (allMasterItems.has(item)) return false;
+                    const config = currentExpenseConfig[item] || {};
+                    const cCat = config.customCategory || 'fixed';
+                    return cCat === currentEditGroupId;
+                });
+
+                let editHtml = '';
+                let groupOptions = '';
+                
+                groupData.forEach((g, idx) => {
+                    groupOptions += `<option value="${g.title}">${g.title}</option>`;
+                    const customMatched = currentCustomItems.filter(item => {
+                        const config = currentExpenseConfig[item] || {};
+                        return config.customGroup === g.title;
+                    });
+                    const allItemsInGroup = [...g.items, ...customMatched];
+
+                    editHtml += `
+                        <div style="margin-bottom: 15px;">
+                            <strong style="display: block; margin-bottom: 8px; color: #2c3e50; font-size: 13px;">${g.title}</strong>
+                            <div id="edit-group-${idx}" style="display: flex; flex-direction: column; gap: 8px; background: #f8f9fa; padding: 12px; border-radius: 8px;">
+                                ${allItemsInGroup.map(item => `
+                                    <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 13px; ${!g.items.includes(item) ? 'color:#8e44ad; font-weight:bold;' : ''}">
+                                        <input type="checkbox" name="editExpenseItem" value="${escapeHtml(item)}" ${!g.items.includes(item) ? `data-custom-group="${escapeHtml(g.title)}"` : ''} ${savedItems.includes(item) ? 'checked' : ''} style="width: auto; margin: 0; accent-color: #2980b9;"> ${escapeHtml(item)}
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                groupOptions += `<option value="기타">기타</option>`;
+                const otherCustomItems = currentCustomItems.filter(item => {
+                    const config = currentExpenseConfig[item] || {};
+                    const grp = config.customGroup || '기타';
+                    return grp === '기타';
+                });
+
+                    editHtml += `
+                        <div style="margin-bottom: 15px;">
+                            <strong style="display: block; margin-bottom: 8px; color: #2c3e50; font-size: 13px;">기타 (사용자 직접 추가 항목)</strong>
+                        <div id="edit-group-other" style="display: flex; flex-direction: column; gap: 8px; background: #f8f9fa; padding: 12px; border-radius: 8px;">
+                            ${otherCustomItems.map(item => `
+                                <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 13px; color: #8e44ad; font-weight: bold;">
+                                    <input type="checkbox" name="editExpenseItem" value="${escapeHtml(item)}" data-custom-group="기타" checked style="width: auto; margin: 0; accent-color: #2980b9;"> ${escapeHtml(item)}
+                                    </label>
+                                `).join('')}
+                            <div id="edit-group-other-anchor"></div>
+                                </div>
+                            </div>
+                    `;
+
+                editHtml += `
+                    <div style="margin-bottom: 15px; border-top: 1px solid #eee; padding-top: 15px;">
+                        <strong style="display: block; margin-bottom: 8px; color: #2980b9; font-size: 13px;">새 항목 직접 추가</strong>
+                        <div style="display: flex; flex-direction: column; gap: 8px; background: #e8f4f8; padding: 12px; border-radius: 8px;">
+                            <select id="newCustomItemGroup" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; outline: none; background: white;">
+                                ${groupOptions}
+                            </select>
+                            <div style="display: flex; gap: 5px;">
+                                <input type="text" id="newCustomItemInput" placeholder="직접 입력" style="flex: 1; margin: 0; padding: 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; outline: none;">
+                                <button type="button" id="addCustomItemBtn" style="padding: 8px 12px; font-size: 12px; background: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">추가</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                document.getElementById('editItemsContainer').innerHTML = editHtml;
+
+                    const addBtn = document.getElementById('addCustomItemBtn');
+                    const input = document.getElementById('newCustomItemInput');
+                const groupSelect = document.getElementById('newCustomItemGroup');
+                    
+                    addBtn.addEventListener('click', () => {
+                        const val = input.value.trim();
+                    const targetGroup = groupSelect.value;
+                        if (val) {
+                            const newLabel = document.createElement('label');
+                        newLabel.style.cssText = 'cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 13px; color: #8e44ad; font-weight: bold;';
+                        newLabel.innerHTML = `<input type="checkbox" name="editExpenseItem" value="${escapeHtml(val)}" data-custom-group="${escapeHtml(targetGroup)}" checked style="width: auto; margin: 0; accent-color: #2980b9;"> ${escapeHtml(val)}`;
+                        
+                        if (targetGroup === '기타') {
+                            const targetContainer = document.getElementById('edit-group-other');
+                            targetContainer.insertBefore(newLabel, document.getElementById('edit-group-other-anchor'));
+                        } else {
+                            const targetIdx = groupData.findIndex(g => g.title === targetGroup);
+                            const targetContainer = document.getElementById(`edit-group-${targetIdx}`);
+                            targetContainer.appendChild(newLabel);
+                        }
+                            input.value = '';
+                        }
+                    });
+                    input.addEventListener('keypress', (e) => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
+
+                document.getElementById('editItemsModal').style.display = 'flex';
+            });
+        });
 
         adjContent.querySelectorAll('.expense-item-name').forEach(label => {
             label.addEventListener('click', (e) => {
@@ -514,6 +735,66 @@ export const render = async (container) => {
         });
 
         renderGroup('current_bill'); // 초기 렌더링
+
+    // 항목 편집 모달 이벤트 등록
+    document.getElementById('cancelEditItemsBtn').addEventListener('click', () => {
+        document.getElementById('editItemsModal').style.display = 'none';
+    });
+
+    document.getElementById('saveEditItemsBtn').addEventListener('click', async () => {
+        if (!currentEditGroupId) return;
+
+        const checkboxes = document.querySelectorAll('input[name="editExpenseItem"]:checked');
+        const checkedItems = Array.from(checkboxes).map(cb => cb.value);
+
+        const allMasterItemsOverall = new Set();
+        Object.values(masterGroups).forEach(arr => arr.forEach(g => g.items.forEach(i => allMasterItemsOverall.add(i))));
+
+        const allMasterItemsInGroup = new Set();
+        masterGroups[currentEditGroupId].forEach(g => g.items.forEach(i => allMasterItemsInGroup.add(i)));
+
+        const existingCustomItemsForGroup = savedItems.filter(item => {
+            if (allMasterItemsOverall.has(item)) return false;
+            const cat = (currentExpenseConfig[item] && currentExpenseConfig[item].customCategory) || 'fixed';
+            return cat === currentEditGroupId;
+        });
+
+        existingCustomItemsForGroup.forEach(i => allMasterItemsInGroup.add(i));
+
+        // Filter out items that belong to the current group from savedItems
+        savedItems = savedItems.filter(item => !allMasterItemsInGroup.has(item));
+        
+        // Add the newly checked items
+        checkedItems.forEach(item => {
+            if (!savedItems.includes(item)) savedItems.push(item);
+            
+            const cb = document.querySelector(`input[name="editExpenseItem"][value="${CSS.escape(item)}"]`);
+            if (cb && cb.dataset.customGroup) {
+                if (!currentExpenseConfig[item]) currentExpenseConfig[item] = {};
+                currentExpenseConfig[item].customCategory = currentEditGroupId;
+                currentExpenseConfig[item].customGroup = cb.dataset.customGroup;
+            }
+        });
+
+        document.getElementById('saveEditItemsBtn').disabled = true;
+        document.getElementById('saveEditItemsBtn').textContent = '저장 중...';
+
+        try {
+            await updateDoc(doc(db, "buildings", bId), { 
+                expenseItems: savedItems,
+                expenseConfig: currentExpenseConfig
+            });
+            alert('항목이 성공적으로 업데이트되었습니다.');
+            document.getElementById('editItemsModal').style.display = 'none';
+            renderGroup(currentEditGroupId); // UI refresh
+        } catch (error) {
+            console.error(error);
+            alert('저장 중 오류가 발생했습니다.');
+        } finally {
+            document.getElementById('saveEditItemsBtn').disabled = false;
+            document.getElementById('saveEditItemsBtn').textContent = '저장';
+        }
+    });
 
     // 상세 정보 모달 이벤트 등록
     const expenseModal = document.getElementById('expenseModal');
