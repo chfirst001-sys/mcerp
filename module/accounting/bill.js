@@ -237,7 +237,11 @@ const loadBillManagement = async () => {
                     const collections = bData.collections || {};
                     const allMonthsAsc = Object.keys(billingHistory).sort();
                     const roomUnpaidPrincipal = {};
-                    sortedRooms.forEach(room => roomUnpaidPrincipal[room] = 0);
+                    const roomUnpaidHistory = {}; // 세대별 월별 미납 기록 추적
+                    sortedRooms.forEach(room => {
+                        roomUnpaidPrincipal[room] = 0;
+                        roomUnpaidHistory[room] = [];
+                    });
 
                     allMonthsAsc.forEach(m => {
                         if (m >= statementMonth) return;
@@ -254,12 +258,49 @@ const loadBillManagement = async () => {
                             const billed = mBaseAmount;
                             const collected = Number(col[room]?.amount) || 0;
                             const unpaidForMonth = billed - collected;
-                            if (unpaidForMonth !== 0) roomUnpaidPrincipal[room] += unpaidForMonth;
+                            if (unpaidForMonth !== 0) {
+                                roomUnpaidPrincipal[room] += unpaidForMonth;
+                                if (unpaidForMonth > 0) {
+                                    roomUnpaidHistory[room].push({ month: m, amount: unpaidForMonth });
+                                } else {
+                                    // 과납(초과수납)인 경우, 가장 오래된 미납금부터 순차 차감
+                                    let overpay = Math.abs(unpaidForMonth);
+                                    for (let i = 0; i < roomUnpaidHistory[room].length; i++) {
+                                        if (overpay <= 0) break;
+                                        if (roomUnpaidHistory[room][i].amount <= overpay) {
+                                            overpay -= roomUnpaidHistory[room][i].amount;
+                                            roomUnpaidHistory[room][i].amount = 0;
+                                        } else {
+                                            roomUnpaidHistory[room][i].amount -= overpay;
+                                            overpay = 0;
+                                        }
+                                    }
+                                    roomUnpaidHistory[room] = roomUnpaidHistory[room].filter(h => h.amount > 0);
+                                }
+                            }
                         });
                     });
 
                     let unpaid = roomUnpaidPrincipal[currentRoom] || 0;
                     if (unpaid < 0) unpaid = 0;
+
+                    // 미납 상세 내역 표기를 위한 데이터 가공 (최신순 역정렬 후 4개월 초과분 합산)
+                    let unpaidList = roomUnpaidHistory[currentRoom] || [];
+                    unpaidList.reverse();
+                    let displayUnpaidDetails = [];
+                    let sumOldUnpaid = 0;
+                    if (unpaid > 0) {
+                        for (let i = 0; i < unpaidList.length; i++) {
+                            if (i < 4) {
+                                displayUnpaidDetails.push(unpaidList[i]);
+                            } else {
+                                sumOldUnpaid += unpaidList[i].amount;
+                            }
+                        }
+                        if (sumOldUnpaid > 0) {
+                            displayUnpaidDetails.push({ month: '5개월 이상 합산', amount: sumOldUnpaid });
+                        }
+                    }
 
                     let lateFee = 0;
                     if (unpaid > 0) {
@@ -288,6 +329,18 @@ const loadBillManagement = async () => {
                     }
 
                     const totalAmount = roomCurrentBill + unpaid + lateFee;
+                    
+                    // 납기후 금액 계산 (당월 부과액에 대한 연체료 가산)
+                    let futureLateFee = 0;
+                    if (roomCurrentBill > 0) {
+                        const method = billingConfig.lateFeeMethod;
+                        const val = Number(billingConfig.lateFeeValue) || 0;
+                        if (method === 'fixed_rate_monthly') futureLateFee = Math.floor(roomCurrentBill * (val / 100) / 10) * 10;
+                        else if (method === 'fixed_rate_annual') futureLateFee = Math.floor(roomCurrentBill * (val / 100 / 12) / 10) * 10;
+                        else if (method === 'fixed_amount') futureLateFee = val;
+                    }
+                    const afterDueDateAmount = totalAmount + futureLateFee;
+
                     const householdsConfig = bData.households || {};
                     const roomInfo = householdsConfig[currentRoom] || {};
                     const residentName = roomInfo.residentName || '입주자';
@@ -295,9 +348,21 @@ const loadBillManagement = async () => {
                     const noticeText = billingConfig.noticeText || '';
                     const bName = bData.name || '우리건물';
                     const displayRoom = currentRoom.endsWith('호') ? currentRoom : currentRoom + '호';
+                    
+                    const [smYear, smMonth] = statementMonth.split('-');
+                    const statementMonthKo = `${smYear}년 ${smMonth}월`;
+                    const dueDateStr = dueDate === '말일' ? `${smYear}년 ${smMonth}월 말일` : `${smYear}년 ${smMonth}월 ${dueDate}일`;
+
+                    const c1Name = billingConfig.contact1Name !== undefined ? billingConfig.contact1Name : '관리사무소'; const c1Phone = billingConfig.contact1Phone || '';
+                    const c2Name = billingConfig.contact2Name !== undefined ? billingConfig.contact2Name : '관리비 문의'; const c2Phone = billingConfig.contact2Phone || '';
+                    const c3Name = billingConfig.contact3Name !== undefined ? billingConfig.contact3Name : '관리소장'; const c3Phone = billingConfig.contact3Phone || '';
 
                     const bankAccounts = bData.bankAccounts || [];
-                    const mainBank = bankAccounts.length > 0 ? bankAccounts[0] : { bank: '등록된 은행 없음', accountNumber: '', owner: '' };
+                    const mainBank = {
+                        bank: billingConfig.bankName || (bankAccounts.length > 0 ? bankAccounts[0].bank : '등록된 은행 없음'),
+                        accountNumber: billingConfig.accountNumber || (bankAccounts.length > 0 ? bankAccounts[0].accountNumber : ''),
+                        owner: billingConfig.accountOwner || (bankAccounts.length > 0 ? bankAccounts[0].owner : '')
+                    };
 
                     let previewHtml = '';
                     if (viewMode === 'paper') {
@@ -307,51 +372,125 @@ const loadBillManagement = async () => {
                                 <div style="position: absolute; top: 99mm; left: 0; width: 100%; border-top: 1px dashed #bdc3c7;"></div>
                                 <div style="position: absolute; top: 198mm; left: 0; width: 100%; border-top: 1px dashed #bdc3c7;"></div>
                                 
-                                <!-- 1단: 우편 정보 (상단) -->
-                                <div style="height: 99mm; padding: 20mm; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;">
-                                    <div>
-                                        <div style="font-size: 14px; color: #555;">보내는 사람</div>
-                                        <div style="font-size: 18px; font-weight: bold; margin-top: 5px;">${escapeHtml(bName)} 관리사무소</div>
+                                <!-- 1단: 우편 정보 및 안내 말씀 (상단) -->
+                                <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; display: flex; flex-direction: column;">
+                                    <!-- 상단: 좌우 분할 영역 -->
+                                    <div style="flex: 1; display: flex; gap: 30px; margin-bottom: 10px;">
+                                        <!-- 왼쪽: 우편 정보 및 온라인 안내 -->
+                                        <div style="flex: 1; display: flex; flex-direction: column;">
+                                            <!-- 우편정보 -->
+                                            <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 10px;">
+                                                <div>
+                                                    <div style="font-size: 14px; color: #555;">보내는 사람</div>
+                                                    <div style="font-size: 18px; font-weight: bold; margin-top: 5px;">${escapeHtml(bName)} 관리사무소</div>
+                                                </div>
+                                                <div style="text-align: right; margin-top: auto;">
+                                                    <div style="font-size: 14px; color: #555;">받는 사람</div>
+                                                    <div style="font-size: 24px; font-weight: bold; margin-top: 5px;">${escapeHtml(displayRoom)} ${escapeHtml(residentName)} 귀하</div>
+                                                </div>
+                                            </div>
+                                            <!-- 고나드 안내 -->
+                                            <div style="flex: 0 0 auto; background: #f8f9fa; border: 1px dashed #bdc3c7; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; justify-content: center;">
+                                                <div style="font-size: 13px; font-weight: bold; color: #2980b9; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                                                    <span style="font-size: 16px;">📱</span> GoNard 온라인 고지서 안내
+                                                </div>
+                                                <div style="font-size: 11px; color: #7f8c8d; line-height: 1.4; word-break: keep-all;">
+                                                    스마트폰에서 <strong>GoNard(나드터)</strong>에 가입하시면 매월 고지서를 모바일로 편리하게 확인하고, 지난 청구 내역을 손쉽게 관리할 수 있습니다.
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 오른쪽: 타이틀 및 안내 말씀 -->
+                                        <div style="flex: 1; display: flex; flex-direction: column;">
+                                            <!-- 타이틀 -->
+                                            <div style="flex: 0 0 auto; text-align: center; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #2c3e50; margin-bottom: 8px; border: 2px solid #2c3e50; padding: 6px; border-radius: 8px; background: #f8f9fa;">
+                                                ${statementMonthKo} 관리비 고지서
+                                            </div>
+                                            <!-- 안내 말씀 -->
+                                            <div style="flex: 1; font-size: 12px; line-height: 1.5; border: 1px solid #ccc; padding: 10px; background: #fcfcfc; overflow: hidden; border-radius: 8px;">
+                                                <strong style="font-size: 14px; color: #2c3e50; display: block; border-bottom: 2px solid #2c3e50; padding-bottom: 4px; margin-bottom: 6px;">[안내 말씀]</strong>
+                                                ${escapeHtml(noticeText).replace(/\n/g, '<br>')}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div style="text-align: right; margin-top: auto;">
-                                        <div style="font-size: 14px; color: #555;">받는 사람</div>
-                                        <div style="font-size: 24px; font-weight: bold; margin-top: 5px;">${escapeHtml(displayRoom)} ${escapeHtml(residentName)} 귀하</div>
+                                    
+                                    <!-- 하단: 연락처 한 줄 (3등분 고정) -->
+                                    <div style="flex: 0 0 auto; display: flex; justify-content: space-between; text-align: center; font-size: 11px; color: #34495e; border: 1px solid #ccc; background: #f8f9fa; padding: 6px; border-radius: 6px;">
+                                        <div style="flex: 1; border-right: 1px solid #ddd;">
+                                            ${(c1Name || c1Phone) ? `<strong>${escapeHtml(c1Name)}</strong> : ${escapeHtml(c1Phone)}` : '&nbsp;'}
+                                        </div>
+                                        <div style="flex: 1; border-right: 1px solid #ddd;">
+                                            ${(c2Name || c2Phone) ? `<strong>${escapeHtml(c2Name)}</strong> : ${escapeHtml(c2Phone)}` : '&nbsp;'}
+                                        </div>
+                                        <div style="flex: 1;">
+                                            ${(c3Name || c3Phone) ? `<strong>${escapeHtml(c3Name)}</strong> : ${escapeHtml(c3Phone)}` : '&nbsp;'}
+                                        </div>
                                     </div>
                                 </div>
                                 
-                                <!-- 2단: 요약 및 납부 안내 (중단) -->
-                                <div style="height: 99mm; padding: 15mm 20mm; box-sizing: border-box; display: flex; flex-direction: column;">
-                                    <h2 style="text-align: center; font-size: 26px; margin: 0 0 15px 0; letter-spacing: 4px;">${statementMonth} 관리비 고지서</h2>
-                                    <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 15px;">
-                                        <tr>
-                                            <th style="border: 2px solid #000; padding: 12px; background: #f0f0f0; width: 35%; font-size: 16px;">총 납부하실 금액</th>
-                                            <td style="border: 2px solid #000; padding: 12px; text-align: right; font-size: 22px; font-weight: bold; color: #e74c3c;">${totalAmount.toLocaleString()} 원</td>
-                                        </tr>
-                                        <tr>
-                                            <th style="border: 1px solid #333; padding: 10px; background: #fafafa;">당월 부과액</th>
-                                            <td style="border: 1px solid #333; padding: 10px; text-align: right; font-weight: bold;">${roomCurrentBill.toLocaleString()} 원</td>
-                                        </tr>
-                                        <tr>
-                                            <th style="border: 1px solid #333; padding: 10px; background: #fafafa;">미납 원금 / 연체료</th>
-                                            <td style="border: 1px solid #333; padding: 10px; text-align: right;">${unpaid.toLocaleString()} 원 / ${lateFee.toLocaleString()} 원</td>
-                                        </tr>
-                                        <tr>
-                                            <th style="border: 1px solid #333; padding: 10px; background: #fafafa;">납부 기한</th>
-                                            <td style="border: 1px solid #333; padding: 10px; text-align: right; font-weight: bold; color: #2980b9;">${statementMonth}-${dueDate} 까지</td>
-                                        </tr>
-                                        <tr>
-                                            <th style="border: 1px solid #333; padding: 10px; background: #fafafa;">납부 계좌</th>
-                                            <td style="border: 1px solid #333; padding: 10px; text-align: right;">${escapeHtml(mainBank.bank)} ${escapeHtml(mainBank.accountNumber)}<br>(예금주: ${escapeHtml(mainBank.owner)})</td>
-                                        </tr>
-                                    </table>
-                                    <div style="flex: 1; font-size: 13px; line-height: 1.5; border: 1px solid #ccc; padding: 12px; background: #fcfcfc; overflow: hidden;">
-                                        <strong>[안내 말씀]</strong><br>
-                                        ${escapeHtml(noticeText).replace(/\n/g, '<br>')}
+                                <!-- 2단: 요약 및 미납 상세내역 (중단) -->
+                                <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+                                    <div style="display: flex; gap: 20px; align-items: flex-start;">
+                                        <!-- 왼쪽: 청구 내역 요약 -->
+                                        <div style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+                                            <h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; display: flex; justify-content: space-between; align-items: baseline;">
+                                                <span>청구 내역</span> <span style="font-size: 14px; color: #2c3e50; font-weight: bold;">${statementMonthKo}분</span>
+                                            </h3>
+                                            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                                <tr>
+                                                    <th style="border: 2px solid #000; padding: 10px; background: #f0f0f0; width: 40%; font-size: 14px;">납기내 금액</th>
+                                                    <td style="border: 2px solid #000; padding: 10px; text-align: right; font-size: 18px; font-weight: bold; color: #e74c3c;">${totalAmount.toLocaleString()} 원</td>
+                                                </tr>
+                                                <tr>
+                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">당월 부과액</th>
+                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">${roomCurrentBill.toLocaleString()} 원</td>
+                                                </tr>
+                                                <tr>
+                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">미납 원금</th>
+                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right;">${unpaid.toLocaleString()} 원</td>
+                                                </tr>
+                                                <tr>
+                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">미납 연체료</th>
+                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right;">${lateFee.toLocaleString()} 원</td>
+                                                </tr>
+                                                <tr>
+                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">납부 기한</th>
+                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold; color: #2980b9;">${dueDateStr} 까지</td>
+                                                </tr>
+                                                <tr>
+                                                    <th style="border: 2px solid #d35400; padding: 8px; background: #fdf2e9; color: #d35400;">납기후 금액</th>
+                                                    <td style="border: 2px solid #d35400; padding: 8px; text-align: right; font-weight: bold; color: #d35400; font-size: 15px;">${afterDueDateAmount.toLocaleString()} 원</td>
+                                                </tr>
+                                                <tr>
+                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">납부 계좌</th>
+                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right; line-height: 1.4;">${escapeHtml(mainBank.bank)} ${escapeHtml(mainBank.accountNumber)}<br>(예금주: ${escapeHtml(mainBank.owner)})</td>
+                                                </tr>
+                                            </table>
+                                        </div>
+                                        
+                                        <!-- 오른쪽: 미납 상세 내역 -->
+                                        <div style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+                                            <h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; color: #c0392b;">미납 상세 내역</h3>
+                                            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                                ${unpaid > 0 ? `
+                                                    <tr><th style="border: 1px solid #ccc; padding: 8px; background: #fdf2e9; text-align: center;">부과월</th><th style="border: 1px solid #ccc; padding: 8px; background: #fdf2e9; text-align: center;">미납원금</th></tr>
+                                                    ${displayUnpaidDetails.map(d => `<tr><td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${escapeHtml(d.month)}</td><td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${d.amount.toLocaleString()} 원</td></tr>`).join('')}
+                                                    <tr><th style="border: 2px solid #e74c3c; padding: 8px; background: #fadbd8; text-align: center;">미납 총합계</th><td style="border: 2px solid #e74c3c; padding: 8px; text-align: right; font-weight: bold; color: #c0392b;">${unpaid.toLocaleString()} 원</td></tr>
+                                                ` : `
+                                                    <tr><td style="border: 1px solid #ccc; padding: 40px 10px; text-align: center; color: #7f8c8d; background: #fafafa;">미납 내역이 없습니다.</td></tr>
+                                                `}
+                                            </table>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 납기후 금액 설명 (가로 전체 한줄) -->
+                                    <div style="flex: 0 0 auto; font-size: 11px; color: #7f8c8d; margin-top: 10px; line-height: 1.4; background: #fdfefe; border: 1px solid #eee; padding: 6px 10px; border-radius: 4px; text-align: left;">
+                                        ※ <strong>납기후 금액</strong>이란? 납부 기한을 넘겨서 납부하실 경우, 당월 부과액에 대한 연체료(${futureLateFee > 0 ? futureLateFee.toLocaleString()+'원' : '설정없음'})가 가산된 총 결제 금액입니다.
                                     </div>
                                 </div>
 
                                 <!-- 3단: 상세 내역 (하단) -->
-                                <div style="height: 99mm; padding: 15mm 20mm; box-sizing: border-box; font-size: 12px;">
+                                <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; font-size: 12px;">
                                     <h3 style="margin: 0 0 10px 0; border-bottom: 2px solid #000; padding-bottom: 5px; font-size: 16px;">당월 부과 상세 내역</h3>
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; row-gap: 6px;">
                                         ${details.map(d => `
@@ -370,43 +509,55 @@ const loadBillManagement = async () => {
                         `;
                     } else {
                         previewHtml = `
-                            <div style="width: 100%; max-width: 400px; background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); margin: 0 auto; overflow: hidden; font-family: 'Pretendard', sans-serif;">
-                                <div style="background: linear-gradient(135deg, #2980b9, #2c3e50); color: white; padding: 30px 20px; text-align: center; position: relative;">
-                                    <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">${escapeHtml(bName)}</div>
-                                    <h2 style="margin: 0 0 5px 0; font-size: 24px;">${statementMonth} 관리비</h2>
-                                    <p style="margin: 0; font-size: 16px; font-weight: 500;">${escapeHtml(displayRoom)} ${escapeHtml(residentName)}님</p>
+                            <div style="width: 100%; max-width: 400px; background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); margin: 0 auto; overflow: hidden; font-family: 'Pretendard', sans-serif; box-sizing: border-box;">
+                                <div style="background: linear-gradient(135deg, #2980b9, #2c3e50); color: white; padding: 20px 15px; text-align: center; position: relative;">
+                                    <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">${escapeHtml(bName)}</div>
+                                    <h2 style="margin: 0 0 4px 0; font-size: 20px;">${statementMonth} 관리비</h2>
+                                    <p style="margin: 0; font-size: 14px; font-weight: 500;">${escapeHtml(displayRoom)} ${escapeHtml(residentName)}님</p>
                                 </div>
-                                <div style="padding: 20px;">
-                                    <div style="text-align: center; margin-bottom: 25px;">
-                                        <div style="font-size: 14px; color: #7f8c8d; margin-bottom: 5px;">총 납부하실 금액</div>
-                                        <div style="font-size: 32px; font-weight: bold; color: #e74c3c;">${totalAmount.toLocaleString()} <span style="font-size: 20px; color: #333;">원</span></div>
-                                        <div style="font-size: 13px; color: #34495e; margin-top: 10px; background: #f8f9fa; padding: 8px; border-radius: 8px;">납부기한: <strong>${statementMonth}-${dueDate}</strong></div>
+                                <div style="padding: 15px;">
+                                    <div style="text-align: center; margin-bottom: 15px;">
+                                        <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 2px;">납기내 총 결제 금액</div>
+                                        <div style="font-size: 28px; font-weight: bold; color: #e74c3c; line-height: 1.2;">${totalAmount.toLocaleString()} <span style="font-size: 18px; color: #333;">원</span></div>
+                                        <div style="font-size: 12px; color: #34495e; margin-top: 8px; background: #f8f9fa; padding: 6px; border-radius: 6px;">납부기한: <strong>${dueDateStr} 까지</strong></div>
                                     </div>
                                     
-                                    <h3 style="font-size: 15px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 8px; margin-bottom: 12px;">청구 요약</h3>
-                                    <div style="display: flex; flex-direction: column; gap: 10px; font-size: 14px; color: #555; margin-bottom: 20px;">
+                                    <h3 style="font-size: 13px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: baseline;">
+                                        <span>청구 내역</span> <span style="font-size: 12px; color: #2c3e50; font-weight: bold;">${statementMonthKo}분</span>
+                                    </h3>
+                                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #555; margin-bottom: 20px;">
                                         <div style="display: flex; justify-content: space-between;"><span>당월 부과액</span><strong>${roomCurrentBill.toLocaleString()} 원</strong></div>
-                                        ${unpaid > 0 ? `<div style="display: flex; justify-content: space-between; color: #e74c3c;"><span>미납 원금</span><strong>${unpaid.toLocaleString()} 원</strong></div>` : ''}
-                                        ${lateFee > 0 ? `<div style="display: flex; justify-content: space-between; color: #f39c12;"><span>연체료</span><strong>${lateFee.toLocaleString()} 원</strong></div>` : ''}
+                                        <div style="display: flex; justify-content: space-between; color: #e74c3c;"><span>미납 원금</span><strong>${unpaid.toLocaleString()} 원</strong></div>
+                                        <div style="display: flex; justify-content: space-between; color: #f39c12;"><span>미납 연체료</span><strong>${lateFee.toLocaleString()} 원</strong></div>
+                                        <div style="display: flex; justify-content: space-between; color: #d35400; margin-top: 4px; padding-top: 6px; border-top: 1px dashed #eee;">
+                                            <span>납기후 금액</span><strong style="font-size: 14px;">${afterDueDateAmount.toLocaleString()} 원</strong>
+                                        </div>
+                                        <div style="font-size: 10px; color: #95a5a6; margin-top: 2px; text-align: left; line-height: 1.3;">※ 납기 후에는 당월 연체료가 가산된 위 금액으로 납부하셔야 합니다.</div>
                                     </div>
 
-                                    <h3 style="font-size: 15px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 8px; margin-bottom: 12px;">상세 부과 내역</h3>
-                                    <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #555; margin-bottom: 20px; background: #fdfefe; padding: 12px; border: 1px solid #eee; border-radius: 8px;">
+                                    <h3 style="font-size: 13px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 4px; margin-bottom: 8px;">상세 부과 내역</h3>
+                                    <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #555; margin-bottom: 15px; background: #fdfefe; padding: 10px; border: 1px solid #eee; border-radius: 8px;">
                                         ${details.map(d => `
                                             <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #f0f0f0; padding-bottom: 4px;">
-                                                <span>${escapeHtml(d.name)}</span>
-                                                <strong>${d.amt.toLocaleString()} 원</strong>
+                                                <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 10px;">${escapeHtml(d.name)}</span>
+                                                <strong style="flex-shrink: 0;">${d.amt.toLocaleString()} 원</strong>
                                             </div>
                                         `).join('')}
                                     </div>
                                     
-                                    <h3 style="font-size: 15px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 8px; margin-bottom: 12px;">납부 계좌</h3>
-                                    <div style="background: #e8f4f8; border: 1px solid #bce0fd; padding: 15px; border-radius: 8px; text-align: center; font-size: 14px; color: #2980b9; margin-bottom: 20px;">
-                                        <strong>${escapeHtml(mainBank.bank)}</strong><br>${escapeHtml(mainBank.accountNumber)}<br><span style="font-size: 12px; color: #34495e;">예금주: ${escapeHtml(mainBank.owner)}</span>
+                                    <h3 style="font-size: 13px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 4px; margin-bottom: 8px;">납부 계좌</h3>
+                                    <div style="background: #e8f4f8; border: 1px solid #bce0fd; padding: 10px; border-radius: 8px; text-align: center; font-size: 13px; color: #2980b9; margin-bottom: 15px; word-break: keep-all;">
+                                        <strong>${escapeHtml(mainBank.bank)}</strong><br>${escapeHtml(mainBank.accountNumber)}<br><span style="font-size: 11px; color: #34495e;">예금주: ${escapeHtml(mainBank.owner)}</span>
                                     </div>
                                     
-                                    <div style="font-size: 12px; color: #7f8c8d; line-height: 1.5; background: #fdfefe; padding: 10px; border: 1px solid #eee; border-radius: 8px;">
+                                    <div style="font-size: 11px; color: #7f8c8d; line-height: 1.4; background: #fdfefe; padding: 8px; border: 1px solid #eee; border-radius: 8px;">
                                         ${escapeHtml(noticeText).replace(/\n/g, '<br>')}
+                                    </div>
+                                    
+                                    <div style="font-size: 11px; color: #7f8c8d; display: flex; justify-content: space-between; margin-top: 15px; padding: 8px; border-top: 1px dashed #eee; background: #f8f9fa; border-radius: 8px;">
+                                        <div style="flex: 1; text-align: center; border-right: 1px solid #ddd;">${(c1Name || c1Phone) ? `${escapeHtml(c1Name)}<br><strong style="color:#2c3e50;">${escapeHtml(c1Phone)}</strong>` : '&nbsp;'}</div>
+                                        <div style="flex: 1; text-align: center; border-right: 1px solid #ddd;">${(c2Name || c2Phone) ? `${escapeHtml(c2Name)}<br><strong style="color:#2c3e50;">${escapeHtml(c2Phone)}</strong>` : '&nbsp;'}</div>
+                                        <div style="flex: 1; text-align: center;">${(c3Name || c3Phone) ? `${escapeHtml(c3Name)}<br><strong style="color:#2c3e50;">${escapeHtml(c3Phone)}</strong>` : '&nbsp;'}</div>
                                     </div>
                                 </div>
                             </div>
@@ -434,8 +585,10 @@ const loadBillManagement = async () => {
                         </div>
 
                         <!-- 뷰 영역 -->
-                        <div style="background: #ecf0f1; padding: 20px; border-radius: 8px; overflow-x: auto; margin-bottom: 20px;">
-                            ${previewHtml}
+                        <div style="background: #ecf0f1; padding: 10px; border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 20px; text-align: center;">
+                            <div style="display: inline-block; text-align: left; width: 100%; min-width: fit-content;">
+                                ${previewHtml}
+                            </div>
                         </div>
 
                         <!-- 하단 액션 버튼 -->
@@ -490,6 +643,16 @@ const loadBillManagement = async () => {
                 const lateFeeMethod = billingConfig.lateFeeMethod || 'none';
                 const lateFeeValue = billingConfig.lateFeeValue || 0;
                 const noticeText = billingConfig.noticeText || '관리비 납부에 감사드립니다. 기한 내 납부 부탁드립니다.';
+                const bankName = billingConfig.bankName || '';
+                const accountNumber = billingConfig.accountNumber || '';
+                const accountOwner = billingConfig.accountOwner || '';
+                
+                const c1Name = billingConfig.contact1Name !== undefined ? billingConfig.contact1Name : '관리사무소';
+                const c1Phone = billingConfig.contact1Phone || '';
+                const c2Name = billingConfig.contact2Name !== undefined ? billingConfig.contact2Name : '관리비 문의';
+                const c2Phone = billingConfig.contact2Phone || '';
+                const c3Name = billingConfig.contact3Name !== undefined ? billingConfig.contact3Name : '관리소장';
+                const c3Phone = billingConfig.contact3Phone || '';
 
                 let dueDateOptions = '';
                 for(let i=1; i<=28; i++) dueDateOptions += `<option value="${i}" ${dueDate == i ? 'selected' : ''}>매월 ${i}일</option>`;
@@ -527,6 +690,27 @@ const loadBillManagement = async () => {
                             <input type="number" id="bcLateFeeValue" value="${lateFeeValue}" placeholder="비율/금액 수치" style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; display: ${lateFeeMethod === 'none' ? 'none' : 'block'};">
                         </div>
 
+                        <label style="display: block; font-size: 12px; color: #7f8c8d; margin-bottom: 5px;">입금 계좌 정보</label>
+                        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                            <input type="text" id="bcBankName" value="${escapeHtml(bankName)}" placeholder="은행명 (예: 국민은행)" style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                            <input type="text" id="bcAccountNumber" value="${escapeHtml(accountNumber)}" placeholder="계좌번호" style="flex: 2; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                            <input type="text" id="bcAccountOwner" value="${escapeHtml(accountOwner)}" placeholder="예금주" style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+
+                        <label style="display: block; font-size: 12px; color: #7f8c8d; margin-bottom: 5px;">고지서 표시 연락처 (최대 3개)</label>
+                        <div style="display: flex; gap: 10px; margin-bottom: 5px;">
+                            <input type="text" id="bcContactName1" value="${escapeHtml(c1Name)}" placeholder="명칭 (예: 관리사무소)" style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                            <input type="text" id="bcContactPhone1" value="${escapeHtml(c1Phone)}" placeholder="연락처" style="flex: 2; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-bottom: 5px;">
+                            <input type="text" id="bcContactName2" value="${escapeHtml(c2Name)}" placeholder="명칭 (예: 관리비 문의)" style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                            <input type="text" id="bcContactPhone2" value="${escapeHtml(c2Phone)}" placeholder="연락처" style="flex: 2; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                            <input type="text" id="bcContactName3" value="${escapeHtml(c3Name)}" placeholder="명칭 (예: 관리소장)" style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                            <input type="text" id="bcContactPhone3" value="${escapeHtml(c3Phone)}" placeholder="연락처" style="flex: 2; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                        </div>
+
                         <label style="display: block; font-size: 12px; color: #7f8c8d; margin-bottom: 5px;">고지서 하단 인쇄 안내문</label>
                         <textarea id="bcNoticeText" rows="3" placeholder="예: 납부 마감일 이후에는 연체료가 부과됩니다." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 20px; box-sizing: border-box; resize: none;">${escapeHtml(noticeText)}</textarea>
 
@@ -545,12 +729,24 @@ const loadBillManagement = async () => {
                     const lateFeeMethod = document.getElementById('bcLateFeeMethod').value;
                     const lateFeeValue = Number(document.getElementById('bcLateFeeValue').value) || 0;
                     const noticeText = document.getElementById('bcNoticeText').value;
+                    const bankName = document.getElementById('bcBankName').value.trim();
+                    const accountNumber = document.getElementById('bcAccountNumber').value.trim();
+                    const accountOwner = document.getElementById('bcAccountOwner').value.trim();
+                    
+                    const contact1Name = document.getElementById('bcContactName1').value.trim();
+                    const contact1Phone = document.getElementById('bcContactPhone1').value.trim();
+                    const contact2Name = document.getElementById('bcContactName2').value.trim();
+                    const contact2Phone = document.getElementById('bcContactPhone2').value.trim();
+                    const contact3Name = document.getElementById('bcContactName3').value.trim();
+                    const contact3Phone = document.getElementById('bcContactPhone3').value.trim();
 
                     try {
                         await updateDoc(doc(db, "buildings", bId), {
                             billingConfig: { 
                                 billTiming: timing, splitMethod: split, 
-                                dueDate, lateFeeMethod, lateFeeValue, noticeText
+                                dueDate, lateFeeMethod, lateFeeValue, noticeText,
+                                bankName, accountNumber, accountOwner,
+                                contact1Name, contact1Phone, contact2Name, contact2Phone, contact3Name, contact3Phone
                             }
                         });
                         alert('부과 설정이 저장되었습니다.');
