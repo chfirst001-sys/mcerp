@@ -442,8 +442,8 @@ const loadBillManagement = async () => {
                         const displayRoom = roomName.endsWith('호') ? roomName : roomName + '호';
 
                         const containerStyle = isPreview
-                            ? "width: 210mm; min-height: 297mm; background: white; margin: 0 auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); position: relative; font-family: 'Malgun Gothic', sans-serif; color: #000; box-sizing: border-box;"
-                            : "width: 210mm; height: 297mm; background: white; margin: 0; position: relative; font-family: 'Malgun Gothic', sans-serif; color: #000; box-sizing: border-box; page-break-after: always; overflow: hidden;";
+                            ? "width: 210mm; min-height: 297mm; background: white; margin: 0 auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); position: relative; font-family: 'Malgun Gothic', sans-serif; color: #000; box-sizing: border-box; word-break: keep-all;"
+                            : "width: 210mm; height: 297mm; background: white; margin: 0; position: relative; font-family: 'Malgun Gothic', sans-serif; color: #000; box-sizing: border-box; page-break-after: always; overflow: hidden; word-break: keep-all;";
 
                         return `
                             <div class="a4-bill-page" style="${containerStyle}">
@@ -452,10 +452,10 @@ const loadBillManagement = async () => {
                                 <div style="position: absolute; top: 198mm; left: 0; width: 100%; border-top: 1px dashed #bdc3c7;"></div>
                                 
                                 <!-- 1단, 2단, 3단 컨텐츠 로직 (이전 코드와 동일하게 삽입) -->
-                                <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; display: flex; flex-direction: column;">
-                                    <div style="flex: 1; display: flex; gap: 30px; margin-bottom: 10px;">
+                                <div style="height: 99mm; padding: 6mm 15mm; box-sizing: border-box; display: flex; flex-direction: column;">
+                                    <div style="flex: 1; display: flex; gap: 30px; margin-bottom: 15px;">
                                         <div style="flex: 1; display: flex; flex-direction: column;">
-                                            <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 10px;">
+                                            <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 15px;">
                                                 <div><div style="font-size: 14px; color: #555;">보내는 사람</div><div style="font-size: 18px; font-weight: bold; margin-top: 5px;">${escapeHtml(bName)} 관리사무소</div></div>
                                                 <div style="text-align: right; margin-top: auto;"><div style="font-size: 14px; color: #555;">받는 사람</div><div style="font-size: 24px; font-weight: bold; margin-top: 5px;">${escapeHtml(displayRoom)} ${escapeHtml(residentName)} 귀하</div></div>
                                             </div>
@@ -465,7 +465,7 @@ const loadBillManagement = async () => {
                                             </div>
                                         </div>
                                         <div style="flex: 1; display: flex; flex-direction: column;">
-                                            <div style="flex: 0 0 auto; text-align: center; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #2c3e50; margin-bottom: 8px; border: 2px solid #2c3e50; padding: 6px; border-radius: 8px; background: #f8f9fa;">${statementMonthKo} 관리비 고지서</div>
+                                            <div style="flex: 0 0 auto; text-align: center; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #2c3e50; margin-bottom: 12px; border: 2px solid #2c3e50; padding: 6px; border-radius: 8px; background: #f8f9fa;">${statementMonthKo} 관리비 고지서</div>
                                             <div style="flex: 1; font-size: 12px; line-height: 1.5; border: 1px solid #ccc; padding: 10px; background: #fcfcfc; overflow: hidden; border-radius: 8px;"><strong style="font-size: 14px; color: #2c3e50; display: block; border-bottom: 2px solid #2c3e50; padding-bottom: 4px; margin-bottom: 6px;">[안내 말씀]</strong>${escapeHtml(noticeText).replace(/\n/g, '<br>')}</div>
                                         </div>
                                     </div>
@@ -496,8 +496,8 @@ const loadBillManagement = async () => {
                                     </div>
                                     <div style="flex: 0 0 auto; font-size: 11px; color: #7f8c8d; margin-top: 10px; line-height: 1.4; background: #fdfefe; border: 1px solid #eee; padding: 6px 10px; border-radius: 4px; text-align: left;">※ <strong>납기후 금액</strong>이란? 납부 기한을 넘겨서 납부하실 경우, 당월 부과액에 대한 연체료(${futureLateFee > 0 ? futureLateFee.toLocaleString()+'원' : '설정없음'})가 가산된 총 결제 금액입니다.</div>
                                 </div>
-                                <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; font-size: 12px;">
-                                    <h3 style="margin: 0 0 10px 0; border-bottom: 2px solid #000; padding-bottom: 5px; font-size: 16px;">당월 부과 상세 내역</h3>
+                                <div style="height: 99mm; padding: 6mm 15mm; box-sizing: border-box; font-size: 12px;">
+                                    <h3 style="margin: 0 0 12px 0; border-bottom: 2px solid #000; padding-bottom: 5px; font-size: 16px;">당월 부과 상세 내역</h3>
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; row-gap: 6px;">${details.map(d => `<div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #ccc; padding-bottom: 3px;"><span>${escapeHtml(d.name)}</span><span>${d.amt.toLocaleString()}</span></div>`).join('')}</div>
                                     <div style="margin-top: 15px; border-top: 2px solid #333; padding-top: 8px; display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;"><span>당월 부과액 합계</span><span>${roomCurrentBill.toLocaleString()} 원</span></div>
                                 </div>
