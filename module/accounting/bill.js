@@ -284,24 +284,6 @@ const loadBillManagement = async () => {
                     let unpaid = roomUnpaidPrincipal[currentRoom] || 0;
                     if (unpaid < 0) unpaid = 0;
 
-                    // 미납 상세 내역 표기를 위한 데이터 가공 (최신순 역정렬 후 4개월 초과분 합산)
-                    let unpaidList = roomUnpaidHistory[currentRoom] || [];
-                    unpaidList.reverse();
-                    let displayUnpaidDetails = [];
-                    let sumOldUnpaid = 0;
-                    if (unpaid > 0) {
-                        for (let i = 0; i < unpaidList.length; i++) {
-                            if (i < 4) {
-                                displayUnpaidDetails.push(unpaidList[i]);
-                            } else {
-                                sumOldUnpaid += unpaidList[i].amount;
-                            }
-                        }
-                        if (sumOldUnpaid > 0) {
-                            displayUnpaidDetails.push({ month: '5개월 이상 합산', amount: sumOldUnpaid });
-                        }
-                    }
-
                     let lateFee = 0;
                     if (unpaid > 0) {
                         const method = billingConfig.lateFeeMethod;
@@ -310,6 +292,81 @@ const loadBillManagement = async () => {
                         else if (method === 'fixed_rate_annual') lateFee = Math.floor(unpaid * (val / 100 / 12) / 10) * 10;
                         else if (method === 'fixed_amount') lateFee = val;
                     }
+
+                    // 미납 상세 내역 표기를 위한 데이터 가공 (4개월 상세, 5개월 이상 합계)
+                    let unpaidList = roomUnpaidHistory[currentRoom] || [];
+                    unpaidList.reverse();
+                    
+                    const calcItemLateFee = (principal) => {
+                        if (principal <= 0) return 0;
+                        const method = billingConfig.lateFeeMethod;
+                        const val = Number(billingConfig.lateFeeValue) || 0;
+                        if (method === 'fixed_rate_monthly') return Math.floor(principal * (val / 100) / 10) * 10;
+                        if (method === 'fixed_rate_annual') return Math.floor(principal * (val / 100 / 12) / 10) * 10;
+                        return 0; // fixed_amount는 전체 합산에서만 보정
+                    };
+
+                    let displayUnpaidDetails = [];
+                    let sumOldUnpaid = 0;
+                    let sumOldLateFee = 0;
+                    let distributedLateFee = 0;
+
+                    // 최근 4개월 내역 세팅
+                    for (let i = 0; i < 4; i++) {
+                        if (i < unpaidList.length) {
+                            const p = unpaidList[i].amount;
+                            let f = calcItemLateFee(p);
+                            if (billingConfig.lateFeeMethod === 'fixed_amount') f = 0;
+                            
+                            displayUnpaidDetails.push({ month: unpaidList[i].month, amount: p, fee: f, isEmpty: false });
+                            distributedLateFee += f;
+                        } else {
+                            displayUnpaidDetails.push({ month: '-', amount: 0, fee: 0, isEmpty: true });
+                        }
+                    }
+
+                    // 5개월 이상 미납금 합산
+                    for (let i = 4; i < unpaidList.length; i++) {
+                        sumOldUnpaid += unpaidList[i].amount;
+                    }
+
+                    // 연체료 차액 보정 (전체 연체료 - 개별 계산된 연체료의 합을 5개월 이상에 몰아줌)
+                    sumOldLateFee = lateFee - distributedLateFee;
+                    if (sumOldLateFee < 0) {
+                        if (displayUnpaidDetails[0] && !displayUnpaidDetails[0].isEmpty) {
+                            displayUnpaidDetails[0].fee += sumOldLateFee;
+                        }
+                        sumOldLateFee = 0;
+                    }
+
+                    let unpaidTableHtml = `
+                        <tr>
+                            <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 34%;">부과월</th>
+                            <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 33%;">미납원금</th>
+                            <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 33%;">연체료</th>
+                        </tr>
+                    `;
+                    displayUnpaidDetails.forEach(d => {
+                        unpaidTableHtml += `
+                            <tr>
+                                <td style="border: 1px solid #ccc; padding: 6px; text-align: center; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${escapeHtml(d.month)}</td>
+                                <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${d.amount > 0 ? d.amount.toLocaleString() : '-'}</td>
+                                <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${d.fee > 0 ? d.fee.toLocaleString() : '-'}</td>
+                            </tr>
+                        `;
+                    });
+                    unpaidTableHtml += `
+                        <tr>
+                            <td style="border: 1px solid #ccc; padding: 6px; text-align: center; ${sumOldUnpaid === 0 ? 'color: #bdc3c7;' : ''}">5개월 이상</td>
+                            <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${sumOldUnpaid === 0 ? 'color: #bdc3c7;' : ''}">${sumOldUnpaid > 0 ? sumOldUnpaid.toLocaleString() : '-'}</td>
+                            <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${sumOldLateFee === 0 ? 'color: #bdc3c7;' : ''}">${sumOldLateFee > 0 ? sumOldLateFee.toLocaleString() : '-'}</td>
+                        </tr>
+                        <tr>
+                            <th style="border: 2px solid #e74c3c; padding: 6px; background: #fadbd8; text-align: center;">합계</th>
+                            <td style="border: 2px solid #e74c3c; padding: 6px; text-align: right; font-weight: bold; color: #c0392b;">${unpaid > 0 ? unpaid.toLocaleString() : '0'}</td>
+                            <td style="border: 2px solid #e74c3c; padding: 6px; text-align: right; font-weight: bold; color: #c0392b;">${lateFee > 0 ? lateFee.toLocaleString() : '0'}</td>
+                        </tr>
+                    `;
 
                     const bill = billingHistory[statementMonth];
                     let roomCurrentBill = 0;
@@ -351,7 +408,24 @@ const loadBillManagement = async () => {
                     
                     const [smYear, smMonth] = statementMonth.split('-');
                     const statementMonthKo = `${smYear}년 ${smMonth}월`;
-                    const dueDateStr = dueDate === '말일' ? `${smYear}년 ${smMonth}월 말일` : `${smYear}년 ${smMonth}월 ${dueDate}일`;
+                    
+                    // 납기일 날짜 정확히 계산
+                    let dueDay = dueDate;
+                    if (dueDate === '말일') dueDay = new Date(smYear, smMonth, 0).getDate();
+                    const dueDateStr = `${smYear}년 ${smMonth}월 ${dueDay}일`;
+
+                    // 청구기간 계산 (당월/익월 부과 기준 반영)
+                    let targetYear = parseInt(smYear, 10);
+                    let targetMonth = parseInt(smMonth, 10);
+                    if (billingConfig.billTiming === '익월부과') {
+                        targetMonth -= 1;
+                        if (targetMonth === 0) {
+                            targetMonth = 12;
+                            targetYear -= 1;
+                        }
+                    }
+                    const lastDayOfTarget = new Date(targetYear, targetMonth, 0).getDate();
+                    const billingPeriodStr = `${targetYear}년 ${String(targetMonth).padStart(2, '0')}월 01일 ~ ${targetYear}년 ${String(targetMonth).padStart(2, '0')}월 ${lastDayOfTarget}일`;
 
                     const c1Name = billingConfig.contact1Name !== undefined ? billingConfig.contact1Name : '관리사무소'; const c1Phone = billingConfig.contact1Phone || '';
                     const c2Name = billingConfig.contact2Name !== undefined ? billingConfig.contact2Name : '관리비 문의'; const c2Phone = billingConfig.contact2Phone || '';
@@ -395,7 +469,7 @@ const loadBillManagement = async () => {
                                                     <span style="font-size: 16px;">📱</span> GoNard 온라인 고지서 안내
                                                 </div>
                                                 <div style="font-size: 11px; color: #7f8c8d; line-height: 1.4; word-break: keep-all;">
-                                                    스마트폰에서 <strong>GoNard(나드터)</strong>에 가입하시면 매월 고지서를 모바일로 편리하게 확인하고, 지난 청구 내역을 손쉽게 관리할 수 있습니다.
+                                                스마트폰에서 <strong>GoNard(고나드)</strong>에 가입하시면 매월 고지서를 모바일로 편리하게 확인하고, 지난 청구 내역을 손쉽게 관리할 수 있습니다.
                                                 </div>
                                             </div>
                                         </div>
@@ -430,7 +504,7 @@ const loadBillManagement = async () => {
                                 
                                 <!-- 2단: 요약 및 미납 상세내역 (중단) -->
                                 <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
-                                    <div style="display: flex; gap: 20px; align-items: flex-start;">
+                                    <div style="display: flex; gap: 20px; align-items: stretch;">
                                         <!-- 왼쪽: 청구 내역 요약 -->
                                         <div style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                                             <h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; display: flex; justify-content: space-between; align-items: baseline;">
@@ -468,18 +542,20 @@ const loadBillManagement = async () => {
                                             </table>
                                         </div>
                                         
-                                        <!-- 오른쪽: 미납 상세 내역 -->
-                                        <div style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
-                                            <h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; color: #c0392b;">미납 상세 내역</h3>
-                                            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                                                ${unpaid > 0 ? `
-                                                    <tr><th style="border: 1px solid #ccc; padding: 8px; background: #fdf2e9; text-align: center;">부과월</th><th style="border: 1px solid #ccc; padding: 8px; background: #fdf2e9; text-align: center;">미납원금</th></tr>
-                                                    ${displayUnpaidDetails.map(d => `<tr><td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${escapeHtml(d.month)}</td><td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${d.amount.toLocaleString()} 원</td></tr>`).join('')}
-                                                    <tr><th style="border: 2px solid #e74c3c; padding: 8px; background: #fadbd8; text-align: center;">미납 총합계</th><td style="border: 2px solid #e74c3c; padding: 8px; text-align: right; font-weight: bold; color: #c0392b;">${unpaid.toLocaleString()} 원</td></tr>
-                                                ` : `
-                                                    <tr><td style="border: 1px solid #ccc; padding: 40px 10px; text-align: center; color: #7f8c8d; background: #fafafa;">미납 내역이 없습니다.</td></tr>
-                                                `}
-                                            </table>
+                                        <!-- 오른쪽: 청구기간 및 미납 상세 내역 -->
+                                        <div style="flex: 1; display: flex; flex-direction: column;">
+                                            <!-- 상단 1/5: 청구 기간 -->
+                                            <div style="flex: 1; background: #e8f4f8; border: 1px solid #bce0fd; border-radius: 6px; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 12px; min-height: 55px;">
+                                                <div style="font-size: 13px; font-weight: bold; color: #2980b9; margin-bottom: 4px;">청구 기간</div>
+                                                <div style="font-size: 14px; font-weight: bold; color: #2c3e50;">${billingPeriodStr}</div>
+                                            </div>
+                                            <!-- 하단 4/5: 미납 상세 내역 -->
+                                            <div style="flex: 4; display: flex; flex-direction: column; justify-content: flex-start;">
+                                                <h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; color: #c0392b;">미납 상세 내역</h3>
+                                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                                    ${unpaidTableHtml}
+                                                </table>
+                                            </div>
                                         </div>
                                     </div>
                                     
@@ -512,7 +588,7 @@ const loadBillManagement = async () => {
                             <div style="width: 100%; max-width: 400px; background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); margin: 0 auto; overflow: hidden; font-family: 'Pretendard', sans-serif; box-sizing: border-box;">
                                 <div style="background: linear-gradient(135deg, #2980b9, #2c3e50); color: white; padding: 20px 15px; text-align: center; position: relative;">
                                     <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">${escapeHtml(bName)}</div>
-                                    <h2 style="margin: 0 0 4px 0; font-size: 20px;">${statementMonth} 관리비</h2>
+                                    <h2 style="margin: 0 0 4px 0; font-size: 20px;">${statementMonthKo} 관리비</h2>
                                     <p style="margin: 0; font-size: 14px; font-weight: 500;">${escapeHtml(displayRoom)} ${escapeHtml(residentName)}님</p>
                                 </div>
                                 <div style="padding: 15px;">
@@ -522,18 +598,34 @@ const loadBillManagement = async () => {
                                         <div style="font-size: 12px; color: #34495e; margin-top: 8px; background: #f8f9fa; padding: 6px; border-radius: 6px;">납부기한: <strong>${dueDateStr} 까지</strong></div>
                                     </div>
                                     
+                                    <div style="background: #e8f4f8; border: 1px solid #bce0fd; border-radius: 8px; padding: 10px; text-align: center; margin-bottom: 15px;">
+                                        <div style="font-size: 11px; font-weight: bold; color: #2980b9; margin-bottom: 2px;">청구 기간</div>
+                                        <div style="font-size: 13px; font-weight: bold; color: #2c3e50;">${billingPeriodStr}</div>
+                                    </div>
+
                                     <h3 style="font-size: 13px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: baseline;">
                                         <span>청구 내역</span> <span style="font-size: 12px; color: #2c3e50; font-weight: bold;">${statementMonthKo}분</span>
                                     </h3>
                                     <div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #555; margin-bottom: 20px;">
                                         <div style="display: flex; justify-content: space-between;"><span>당월 부과액</span><strong>${roomCurrentBill.toLocaleString()} 원</strong></div>
-                                        <div style="display: flex; justify-content: space-between; color: #e74c3c;"><span>미납 원금</span><strong>${unpaid.toLocaleString()} 원</strong></div>
-                                        <div style="display: flex; justify-content: space-between; color: #f39c12;"><span>미납 연체료</span><strong>${lateFee.toLocaleString()} 원</strong></div>
+                                        ${unpaid > 0 ? `<div style="display: flex; justify-content: space-between; color: #e74c3c;"><span>미납 원금</span><strong>${unpaid.toLocaleString()} 원</strong></div>` : ''}
+                                        ${lateFee > 0 ? `<div style="display: flex; justify-content: space-between; color: #f39c12;"><span>미납 연체료</span><strong>${lateFee.toLocaleString()} 원</strong></div>` : ''}
                                         <div style="display: flex; justify-content: space-between; color: #d35400; margin-top: 4px; padding-top: 6px; border-top: 1px dashed #eee;">
                                             <span>납기후 금액</span><strong style="font-size: 14px;">${afterDueDateAmount.toLocaleString()} 원</strong>
                                         </div>
                                         <div style="font-size: 10px; color: #95a5a6; margin-top: 2px; text-align: left; line-height: 1.3;">※ 납기 후에는 당월 연체료가 가산된 위 금액으로 납부하셔야 합니다.</div>
                                     </div>
+
+                                    <h3 style="font-size: 13px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 4px; margin-bottom: 8px;">미납 상세 내역</h3>
+                                    ${unpaid > 0 ? `
+                                        <div style="background: #fdfefe; margin-bottom: 20px; border-radius: 8px; overflow: hidden;">
+                                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                                ${unpaidTableHtml}
+                                            </table>
+                                        </div>
+                                    ` : `
+                                        <div style="text-align: center; padding: 15px; color: #7f8c8d; background: #fafafa; border-radius: 8px; border: 1px dashed #ccc; margin-bottom: 20px; font-size: 12px;">미납된 관리비가 없습니다.</div>
+                                    `}
 
                                     <h3 style="font-size: 13px; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 4px; margin-bottom: 8px;">상세 부과 내역</h3>
                                     <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #555; margin-bottom: 15px; background: #fdfefe; padding: 10px; border: 1px solid #eee; border-radius: 8px;">
