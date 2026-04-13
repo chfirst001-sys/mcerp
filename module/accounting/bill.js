@@ -281,130 +281,125 @@ const loadBillManagement = async () => {
                         });
                     });
 
-                    let unpaid = roomUnpaidPrincipal[currentRoom] || 0;
-                    if (unpaid < 0) unpaid = 0;
+                    // 공통 호실 데이터 가공 헬퍼 함수
+                    const getRoomBillData = (targetRoom) => {
+                        let unpaid = roomUnpaidPrincipal[targetRoom] || 0;
+                        if (unpaid < 0) unpaid = 0;
 
-                    let lateFee = 0;
-                    if (unpaid > 0) {
-                        const method = billingConfig.lateFeeMethod;
-                        const val = Number(billingConfig.lateFeeValue) || 0;
-                        if (method === 'fixed_rate_monthly') lateFee = Math.floor(unpaid * (val / 100) / 10) * 10;
-                        else if (method === 'fixed_rate_annual') lateFee = Math.floor(unpaid * (val / 100 / 12) / 10) * 10;
-                        else if (method === 'fixed_amount') lateFee = val;
-                    }
-
-                    // 미납 상세 내역 표기를 위한 데이터 가공 (4개월 상세, 5개월 이상 합계)
-                    let unpaidList = roomUnpaidHistory[currentRoom] || [];
-                    unpaidList.reverse();
-                    
-                    const calcItemLateFee = (principal) => {
-                        if (principal <= 0) return 0;
-                        const method = billingConfig.lateFeeMethod;
-                        const val = Number(billingConfig.lateFeeValue) || 0;
-                        if (method === 'fixed_rate_monthly') return Math.floor(principal * (val / 100) / 10) * 10;
-                        if (method === 'fixed_rate_annual') return Math.floor(principal * (val / 100 / 12) / 10) * 10;
-                        return 0; // fixed_amount는 전체 합산에서만 보정
-                    };
-
-                    let displayUnpaidDetails = [];
-                    let sumOldUnpaid = 0;
-                    let sumOldLateFee = 0;
-                    let distributedLateFee = 0;
-
-                    // 최근 4개월 내역 세팅
-                    for (let i = 0; i < 4; i++) {
-                        if (i < unpaidList.length) {
-                            const p = unpaidList[i].amount;
-                            let f = calcItemLateFee(p);
-                            if (billingConfig.lateFeeMethod === 'fixed_amount') f = 0;
-                            
-                            displayUnpaidDetails.push({ month: unpaidList[i].month, amount: p, fee: f, isEmpty: false });
-                            distributedLateFee += f;
-                        } else {
-                            displayUnpaidDetails.push({ month: '-', amount: 0, fee: 0, isEmpty: true });
+                        let lateFee = 0;
+                        if (unpaid > 0) {
+                            const method = billingConfig.lateFeeMethod;
+                            const val = Number(billingConfig.lateFeeValue) || 0;
+                            if (method === 'fixed_rate_monthly') lateFee = Math.floor(unpaid * (val / 100) / 10) * 10;
+                            else if (method === 'fixed_rate_annual') lateFee = Math.floor(unpaid * (val / 100 / 12) / 10) * 10;
+                            else if (method === 'fixed_amount') lateFee = val;
                         }
-                    }
 
-                    // 5개월 이상 미납금 합산
-                    for (let i = 4; i < unpaidList.length; i++) {
-                        sumOldUnpaid += unpaidList[i].amount;
-                    }
+                        let unpaidList = roomUnpaidHistory[targetRoom] || [];
+                        unpaidList = [...unpaidList].reverse();
+                        
+                        const calcItemLateFee = (principal) => {
+                            if (principal <= 0) return 0;
+                            const method = billingConfig.lateFeeMethod;
+                            const val = Number(billingConfig.lateFeeValue) || 0;
+                            if (method === 'fixed_rate_monthly') return Math.floor(principal * (val / 100) / 10) * 10;
+                            if (method === 'fixed_rate_annual') return Math.floor(principal * (val / 100 / 12) / 10) * 10;
+                            return 0;
+                        };
 
-                    // 연체료 차액 보정 (전체 연체료 - 개별 계산된 연체료의 합을 5개월 이상에 몰아줌)
-                    sumOldLateFee = lateFee - distributedLateFee;
-                    if (sumOldLateFee < 0) {
-                        if (displayUnpaidDetails[0] && !displayUnpaidDetails[0].isEmpty) {
-                            displayUnpaidDetails[0].fee += sumOldLateFee;
+                        let displayUnpaidDetails = [];
+                        let sumOldUnpaid = 0;
+                        let sumOldLateFee = 0;
+                        let distributedLateFee = 0;
+
+                        for (let i = 0; i < 4; i++) {
+                            if (i < unpaidList.length) {
+                                const p = unpaidList[i].amount;
+                                let f = calcItemLateFee(p);
+                                if (billingConfig.lateFeeMethod === 'fixed_amount') f = 0;
+                                displayUnpaidDetails.push({ month: unpaidList[i].month, amount: p, fee: f, isEmpty: false });
+                                distributedLateFee += f;
+                            } else {
+                                displayUnpaidDetails.push({ month: '-', amount: 0, fee: 0, isEmpty: true });
+                            }
                         }
-                        sumOldLateFee = 0;
-                    }
 
-                    let unpaidTableHtml = `
-                        <tr>
-                            <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 34%;">부과월</th>
-                            <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 33%;">미납원금</th>
-                            <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 33%;">연체료</th>
-                        </tr>
-                    `;
-                    displayUnpaidDetails.forEach(d => {
-                        unpaidTableHtml += `
+                        for (let i = 4; i < unpaidList.length; i++) {
+                            sumOldUnpaid += unpaidList[i].amount;
+                        }
+
+                        sumOldLateFee = lateFee - distributedLateFee;
+                        if (sumOldLateFee < 0) {
+                            if (displayUnpaidDetails[0] && !displayUnpaidDetails[0].isEmpty) {
+                                displayUnpaidDetails[0].fee += sumOldLateFee;
+                            }
+                            sumOldLateFee = 0;
+                        }
+
+                        let unpaidTableHtml = `
                             <tr>
-                                <td style="border: 1px solid #ccc; padding: 6px; text-align: center; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${escapeHtml(d.month)}</td>
-                                <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${d.amount > 0 ? d.amount.toLocaleString() : '-'}</td>
-                                <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${d.fee > 0 ? d.fee.toLocaleString() : '-'}</td>
+                                <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 34%;">부과월</th>
+                                <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 33%;">미납원금</th>
+                                <th style="border: 1px solid #ccc; padding: 6px; background: #fdf2e9; text-align: center; width: 33%;">연체료</th>
                             </tr>
                         `;
-                    });
-                    unpaidTableHtml += `
-                        <tr>
-                            <td style="border: 1px solid #ccc; padding: 6px; text-align: center; ${sumOldUnpaid === 0 ? 'color: #bdc3c7;' : ''}">5개월 이상</td>
-                            <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${sumOldUnpaid === 0 ? 'color: #bdc3c7;' : ''}">${sumOldUnpaid > 0 ? sumOldUnpaid.toLocaleString() : '-'}</td>
-                            <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${sumOldLateFee === 0 ? 'color: #bdc3c7;' : ''}">${sumOldLateFee > 0 ? sumOldLateFee.toLocaleString() : '-'}</td>
-                        </tr>
-                        <tr>
-                            <th style="border: 2px solid #e74c3c; padding: 6px; background: #fadbd8; text-align: center;">합계</th>
-                            <td style="border: 2px solid #e74c3c; padding: 6px; text-align: right; font-weight: bold; color: #c0392b;">${unpaid > 0 ? unpaid.toLocaleString() : '0'}</td>
-                            <td style="border: 2px solid #e74c3c; padding: 6px; text-align: right; font-weight: bold; color: #c0392b;">${lateFee > 0 ? lateFee.toLocaleString() : '0'}</td>
-                        </tr>
-                    `;
-
-                    const bill = billingHistory[statementMonth];
-                    let roomCurrentBill = 0;
-                    const details = [];
-                    
-                    if (billingConfig.splitMethod === 'N분의일부과') {
-                        Object.entries(bill.items || {}).forEach(([name, config]) => {
-                            const amt = Math.ceil(((Number(config.monthlyAmount)||0) / sortedRooms.length) / 10) * 10;
-                            roomCurrentBill += amt;
-                            details.push({ name, amt });
+                        displayUnpaidDetails.forEach(d => {
+                            unpaidTableHtml += `
+                                <tr>
+                                    <td style="border: 1px solid #ccc; padding: 6px; text-align: center; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${escapeHtml(d.month)}</td>
+                                    <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${d.amount > 0 ? d.amount.toLocaleString() : '-'}</td>
+                                    <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${d.isEmpty ? 'color: #bdc3c7;' : ''}">${d.fee > 0 ? d.fee.toLocaleString() : '-'}</td>
+                                </tr>
+                            `;
                         });
-                        (bill.otherItems || []).forEach(o => {
-                            const amt = Math.ceil(((Number(o.amount)||0) / sortedRooms.length) / 10) * 10;
-                            roomCurrentBill += amt;
-                            details.push({ name: o.name, amt });
-                        });
-                    }
+                        unpaidTableHtml += `
+                            <tr>
+                                <td style="border: 1px solid #ccc; padding: 6px; text-align: center; ${sumOldUnpaid === 0 ? 'color: #bdc3c7;' : ''}">5개월 이상</td>
+                                <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${sumOldUnpaid === 0 ? 'color: #bdc3c7;' : ''}">${sumOldUnpaid > 0 ? sumOldUnpaid.toLocaleString() : '-'}</td>
+                                <td style="border: 1px solid #ccc; padding: 6px; text-align: right; ${sumOldLateFee === 0 ? 'color: #bdc3c7;' : ''}">${sumOldLateFee > 0 ? sumOldLateFee.toLocaleString() : '-'}</td>
+                            </tr>
+                            <tr>
+                                <th style="border: 2px solid #e74c3c; padding: 6px; background: #fadbd8; text-align: center;">합계</th>
+                                <td style="border: 2px solid #e74c3c; padding: 6px; text-align: right; font-weight: bold; color: #c0392b;">${unpaid > 0 ? unpaid.toLocaleString() : '0'}</td>
+                                <td style="border: 2px solid #e74c3c; padding: 6px; text-align: right; font-weight: bold; color: #c0392b;">${lateFee > 0 ? lateFee.toLocaleString() : '0'}</td>
+                            </tr>
+                        `;
 
-                    const totalAmount = roomCurrentBill + unpaid + lateFee;
-                    
-                    // 납기후 금액 계산 (당월 부과액에 대한 연체료 가산)
-                    let futureLateFee = 0;
-                    if (roomCurrentBill > 0) {
-                        const method = billingConfig.lateFeeMethod;
-                        const val = Number(billingConfig.lateFeeValue) || 0;
-                        if (method === 'fixed_rate_monthly') futureLateFee = Math.floor(roomCurrentBill * (val / 100) / 10) * 10;
-                        else if (method === 'fixed_rate_annual') futureLateFee = Math.floor(roomCurrentBill * (val / 100 / 12) / 10) * 10;
-                        else if (method === 'fixed_amount') futureLateFee = val;
-                    }
-                    const afterDueDateAmount = totalAmount + futureLateFee;
+                        const bill = billingHistory[statementMonth];
+                        let roomCurrentBill = 0;
+                        const details = [];
+                        
+                        if (billingConfig.splitMethod === 'N분의일부과') {
+                            Object.entries(bill.items || {}).forEach(([name, config]) => {
+                                const amt = Math.ceil(((Number(config.monthlyAmount)||0) / sortedRooms.length) / 10) * 10;
+                                roomCurrentBill += amt;
+                                details.push({ name, amt });
+                            });
+                            (bill.otherItems || []).forEach(o => {
+                                const amt = Math.ceil(((Number(o.amount)||0) / sortedRooms.length) / 10) * 10;
+                                roomCurrentBill += amt;
+                                details.push({ name: o.name, amt });
+                            });
+                        }
 
-                    const householdsConfig = bData.households || {};
-                    const roomInfo = householdsConfig[currentRoom] || {};
-                    const residentName = roomInfo.residentName || '입주자';
+                        const totalAmount = roomCurrentBill + unpaid + lateFee;
+                        
+                        let futureLateFee = 0;
+                        if (roomCurrentBill > 0) {
+                            const method = billingConfig.lateFeeMethod;
+                            const val = Number(billingConfig.lateFeeValue) || 0;
+                            if (method === 'fixed_rate_monthly') futureLateFee = Math.floor(roomCurrentBill * (val / 100) / 10) * 10;
+                            else if (method === 'fixed_rate_annual') futureLateFee = Math.floor(roomCurrentBill * (val / 100 / 12) / 10) * 10;
+                            else if (method === 'fixed_amount') futureLateFee = val;
+                        }
+                        const afterDueDateAmount = totalAmount + futureLateFee;
+
+                        return { unpaid, lateFee, unpaidTableHtml, roomCurrentBill, details, totalAmount, futureLateFee, afterDueDateAmount };
+                    };
+
                     const dueDate = billingConfig.dueDate || '말일';
                     const noticeText = billingConfig.noticeText || '';
                     const bName = bData.name || '우리건물';
-                    const displayRoom = currentRoom.endsWith('호') ? currentRoom : currentRoom + '호';
                     
                     const [smYear, smMonth] = statementMonth.split('-');
                     const statementMonthKo = `${smYear}년 ${smMonth}월`;
@@ -438,152 +433,88 @@ const loadBillManagement = async () => {
                         owner: billingConfig.accountOwner || (bankAccounts.length > 0 ? bankAccounts[0].owner : '')
                     };
 
-                    let previewHtml = '';
-                    if (viewMode === 'paper') {
-                        previewHtml = `
-                            <div id="printArea" style="width: 210mm; min-height: 297mm; background: white; margin: 0 auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); position: relative; font-family: 'Malgun Gothic', sans-serif; color: #000; box-sizing: border-box;">
+                    // 종이고지서 A4 HTML 생성 헬퍼 함수 (출력 및 미리보기용)
+                    const getPaperBillHtml = (roomName, isPreview = false) => {
+                        const { unpaid, lateFee, unpaidTableHtml, roomCurrentBill, details, totalAmount, futureLateFee, afterDueDateAmount } = getRoomBillData(roomName);
+                        const householdsConfig = bData.households || {};
+                        const roomInfo = householdsConfig[roomName] || {};
+                        const residentName = roomInfo.residentName || '입주자';
+                        const displayRoom = roomName.endsWith('호') ? roomName : roomName + '호';
+
+                        const containerStyle = isPreview
+                            ? "width: 210mm; min-height: 297mm; background: white; margin: 0 auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); position: relative; font-family: 'Malgun Gothic', sans-serif; color: #000; box-sizing: border-box;"
+                            : "width: 210mm; height: 297mm; background: white; margin: 0; position: relative; font-family: 'Malgun Gothic', sans-serif; color: #000; box-sizing: border-box; page-break-after: always; overflow: hidden;";
+
+                        return `
+                            <div class="a4-bill-page" style="${containerStyle}">
                                 <!-- 3단 접기 점선 가이드 -->
                                 <div style="position: absolute; top: 99mm; left: 0; width: 100%; border-top: 1px dashed #bdc3c7;"></div>
                                 <div style="position: absolute; top: 198mm; left: 0; width: 100%; border-top: 1px dashed #bdc3c7;"></div>
                                 
-                                <!-- 1단: 우편 정보 및 안내 말씀 (상단) -->
+                                <!-- 1단, 2단, 3단 컨텐츠 로직 (이전 코드와 동일하게 삽입) -->
                                 <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; display: flex; flex-direction: column;">
-                                    <!-- 상단: 좌우 분할 영역 -->
                                     <div style="flex: 1; display: flex; gap: 30px; margin-bottom: 10px;">
-                                        <!-- 왼쪽: 우편 정보 및 온라인 안내 -->
                                         <div style="flex: 1; display: flex; flex-direction: column;">
-                                            <!-- 우편정보 -->
                                             <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 10px;">
-                                                <div>
-                                                    <div style="font-size: 14px; color: #555;">보내는 사람</div>
-                                                    <div style="font-size: 18px; font-weight: bold; margin-top: 5px;">${escapeHtml(bName)} 관리사무소</div>
-                                                </div>
-                                                <div style="text-align: right; margin-top: auto;">
-                                                    <div style="font-size: 14px; color: #555;">받는 사람</div>
-                                                    <div style="font-size: 24px; font-weight: bold; margin-top: 5px;">${escapeHtml(displayRoom)} ${escapeHtml(residentName)} 귀하</div>
-                                                </div>
+                                                <div><div style="font-size: 14px; color: #555;">보내는 사람</div><div style="font-size: 18px; font-weight: bold; margin-top: 5px;">${escapeHtml(bName)} 관리사무소</div></div>
+                                                <div style="text-align: right; margin-top: auto;"><div style="font-size: 14px; color: #555;">받는 사람</div><div style="font-size: 24px; font-weight: bold; margin-top: 5px;">${escapeHtml(displayRoom)} ${escapeHtml(residentName)} 귀하</div></div>
                                             </div>
-                                            <!-- 고나드 안내 -->
                                             <div style="flex: 0 0 auto; background: #f8f9fa; border: 1px dashed #bdc3c7; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; justify-content: center;">
-                                                <div style="font-size: 13px; font-weight: bold; color: #2980b9; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
-                                                    <span style="font-size: 16px;">📱</span> GoNard 온라인 고지서 안내
-                                                </div>
-                                                <div style="font-size: 11px; color: #7f8c8d; line-height: 1.4; word-break: keep-all;">
-                                                스마트폰에서 <strong>GoNard(고나드)</strong>에 가입하시면 매월 고지서를 모바일로 편리하게 확인하고, 지난 청구 내역을 손쉽게 관리할 수 있습니다.
-                                                </div>
+                                                <div style="font-size: 13px; font-weight: bold; color: #2980b9; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;"><span style="font-size: 16px;">📱</span> GoNard 온라인 고지서 안내</div>
+                                                <div style="font-size: 11px; color: #7f8c8d; line-height: 1.4; word-break: keep-all;">스마트폰에서 <strong>GoNard(고나드)</strong>에 가입하시면 매월 고지서를 모바일로 편리하게 확인하고, 지난 청구 내역을 손쉽게 관리할 수 있습니다.</div>
                                             </div>
                                         </div>
-                                        
-                                        <!-- 오른쪽: 타이틀 및 안내 말씀 -->
                                         <div style="flex: 1; display: flex; flex-direction: column;">
-                                            <!-- 타이틀 -->
-                                            <div style="flex: 0 0 auto; text-align: center; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #2c3e50; margin-bottom: 8px; border: 2px solid #2c3e50; padding: 6px; border-radius: 8px; background: #f8f9fa;">
-                                                ${statementMonthKo} 관리비 고지서
-                                            </div>
-                                            <!-- 안내 말씀 -->
-                                            <div style="flex: 1; font-size: 12px; line-height: 1.5; border: 1px solid #ccc; padding: 10px; background: #fcfcfc; overflow: hidden; border-radius: 8px;">
-                                                <strong style="font-size: 14px; color: #2c3e50; display: block; border-bottom: 2px solid #2c3e50; padding-bottom: 4px; margin-bottom: 6px;">[안내 말씀]</strong>
-                                                ${escapeHtml(noticeText).replace(/\n/g, '<br>')}
-                                            </div>
+                                            <div style="flex: 0 0 auto; text-align: center; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #2c3e50; margin-bottom: 8px; border: 2px solid #2c3e50; padding: 6px; border-radius: 8px; background: #f8f9fa;">${statementMonthKo} 관리비 고지서</div>
+                                            <div style="flex: 1; font-size: 12px; line-height: 1.5; border: 1px solid #ccc; padding: 10px; background: #fcfcfc; overflow: hidden; border-radius: 8px;"><strong style="font-size: 14px; color: #2c3e50; display: block; border-bottom: 2px solid #2c3e50; padding-bottom: 4px; margin-bottom: 6px;">[안내 말씀]</strong>${escapeHtml(noticeText).replace(/\n/g, '<br>')}</div>
                                         </div>
                                     </div>
-                                    
-                                    <!-- 하단: 연락처 한 줄 (3등분 고정) -->
                                     <div style="flex: 0 0 auto; display: flex; justify-content: space-between; text-align: center; font-size: 11px; color: #34495e; border: 1px solid #ccc; background: #f8f9fa; padding: 6px; border-radius: 6px;">
-                                        <div style="flex: 1; border-right: 1px solid #ddd;">
-                                            ${(c1Name || c1Phone) ? `<strong>${escapeHtml(c1Name)}</strong> : ${escapeHtml(c1Phone)}` : '&nbsp;'}
-                                        </div>
-                                        <div style="flex: 1; border-right: 1px solid #ddd;">
-                                            ${(c2Name || c2Phone) ? `<strong>${escapeHtml(c2Name)}</strong> : ${escapeHtml(c2Phone)}` : '&nbsp;'}
-                                        </div>
-                                        <div style="flex: 1;">
-                                            ${(c3Name || c3Phone) ? `<strong>${escapeHtml(c3Name)}</strong> : ${escapeHtml(c3Phone)}` : '&nbsp;'}
-                                        </div>
+                                        <div style="flex: 1; border-right: 1px solid #ddd;">${(c1Name || c1Phone) ? `<strong>${escapeHtml(c1Name)}</strong> : ${escapeHtml(c1Phone)}` : '&nbsp;'}</div>
+                                        <div style="flex: 1; border-right: 1px solid #ddd;">${(c2Name || c2Phone) ? `<strong>${escapeHtml(c2Name)}</strong> : ${escapeHtml(c2Phone)}` : '&nbsp;'}</div>
+                                        <div style="flex: 1;">${(c3Name || c3Phone) ? `<strong>${escapeHtml(c3Name)}</strong> : ${escapeHtml(c3Phone)}` : '&nbsp;'}</div>
                                     </div>
                                 </div>
-                                
-                                <!-- 2단: 요약 및 미납 상세내역 (중단) -->
                                 <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
                                     <div style="display: flex; gap: 20px; align-items: stretch;">
-                                        <!-- 왼쪽: 청구 내역 요약 -->
                                         <div style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
-                                            <h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; display: flex; justify-content: space-between; align-items: baseline;">
-                                                <span>청구 내역</span> <span style="font-size: 14px; color: #2c3e50; font-weight: bold;">${statementMonthKo}분</span>
-                                            </h3>
+                                            <h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; display: flex; justify-content: space-between; align-items: baseline;"><span>청구 내역</span> <span style="font-size: 14px; color: #2c3e50; font-weight: bold;">${statementMonthKo}분</span></h3>
                                             <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                                                <tr>
-                                                    <th style="border: 2px solid #000; padding: 10px; background: #f0f0f0; width: 40%; font-size: 14px;">납기내 금액</th>
-                                                    <td style="border: 2px solid #000; padding: 10px; text-align: right; font-size: 18px; font-weight: bold; color: #e74c3c;">${totalAmount.toLocaleString()} 원</td>
-                                                </tr>
-                                                <tr>
-                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">당월 부과액</th>
-                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">${roomCurrentBill.toLocaleString()} 원</td>
-                                                </tr>
-                                                <tr>
-                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">미납 원금</th>
-                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right;">${unpaid.toLocaleString()} 원</td>
-                                                </tr>
-                                                <tr>
-                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">미납 연체료</th>
-                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right;">${lateFee.toLocaleString()} 원</td>
-                                                </tr>
-                                                <tr>
-                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">납부 기한</th>
-                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold; color: #2980b9;">${dueDateStr} 까지</td>
-                                                </tr>
-                                                <tr>
-                                                    <th style="border: 2px solid #d35400; padding: 8px; background: #fdf2e9; color: #d35400;">납기후 금액</th>
-                                                    <td style="border: 2px solid #d35400; padding: 8px; text-align: right; font-weight: bold; color: #d35400; font-size: 15px;">${afterDueDateAmount.toLocaleString()} 원</td>
-                                                </tr>
-                                                <tr>
-                                                    <th style="border: 1px solid #333; padding: 8px; background: #fafafa;">납부 계좌</th>
-                                                    <td style="border: 1px solid #333; padding: 8px; text-align: right; line-height: 1.4;">${escapeHtml(mainBank.bank)} ${escapeHtml(mainBank.accountNumber)}<br>(예금주: ${escapeHtml(mainBank.owner)})</td>
-                                                </tr>
+                                                <tr><th style="border: 2px solid #000; padding: 10px; background: #f0f0f0; width: 40%; font-size: 14px;">납기내 금액</th><td style="border: 2px solid #000; padding: 10px; text-align: right; font-size: 18px; font-weight: bold; color: #e74c3c;">${totalAmount.toLocaleString()} 원</td></tr>
+                                                <tr><th style="border: 1px solid #333; padding: 8px; background: #fafafa;">당월 부과액</th><td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">${roomCurrentBill.toLocaleString()} 원</td></tr>
+                                                <tr><th style="border: 1px solid #333; padding: 8px; background: #fafafa;">미납 원금</th><td style="border: 1px solid #333; padding: 8px; text-align: right;">${unpaid.toLocaleString()} 원</td></tr>
+                                                <tr><th style="border: 1px solid #333; padding: 8px; background: #fafafa;">미납 연체료</th><td style="border: 1px solid #333; padding: 8px; text-align: right;">${lateFee.toLocaleString()} 원</td></tr>
+                                                <tr><th style="border: 1px solid #333; padding: 8px; background: #fafafa;">납부 기한</th><td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold; color: #2980b9;">${dueDateStr} 까지</td></tr>
+                                                <tr><th style="border: 2px solid #d35400; padding: 8px; background: #fdf2e9; color: #d35400;">납기후 금액</th><td style="border: 2px solid #d35400; padding: 8px; text-align: right; font-weight: bold; color: #d35400; font-size: 15px;">${afterDueDateAmount.toLocaleString()} 원</td></tr>
+                                                <tr><th style="border: 1px solid #333; padding: 8px; background: #fafafa;">납부 계좌</th><td style="border: 1px solid #333; padding: 8px; text-align: right; line-height: 1.4;">${escapeHtml(mainBank.bank)} ${escapeHtml(mainBank.accountNumber)}<br>(예금주: ${escapeHtml(mainBank.owner)})</td></tr>
                                             </table>
                                         </div>
-                                        
-                                        <!-- 오른쪽: 청구기간 및 미납 상세 내역 -->
                                         <div style="flex: 1; display: flex; flex-direction: column;">
-                                            <!-- 상단 1/5: 청구 기간 -->
-                                            <div style="flex: 1; background: #e8f4f8; border: 1px solid #bce0fd; border-radius: 6px; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 12px; min-height: 55px;">
-                                                <div style="font-size: 13px; font-weight: bold; color: #2980b9; margin-bottom: 4px;">청구 기간</div>
-                                                <div style="font-size: 14px; font-weight: bold; color: #2c3e50;">${billingPeriodStr}</div>
-                                            </div>
-                                            <!-- 하단 4/5: 미납 상세 내역 -->
-                                            <div style="flex: 4; display: flex; flex-direction: column; justify-content: flex-start;">
-                                                <h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; color: #c0392b;">미납 상세 내역</h3>
-                                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                                                    ${unpaidTableHtml}
-                                                </table>
-                                            </div>
+                                            <div style="flex: 1; background: #e8f4f8; border: 1px solid #bce0fd; border-radius: 6px; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 12px; min-height: 55px;"><div style="font-size: 13px; font-weight: bold; color: #2980b9; margin-bottom: 4px;">청구 기간</div><div style="font-size: 14px; font-weight: bold; color: #2c3e50;">${billingPeriodStr}</div></div>
+                                            <div style="flex: 4; display: flex; flex-direction: column; justify-content: flex-start;"><h3 style="margin: 0 0 8px 0; border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; color: #c0392b;">미납 상세 내역</h3><table style="width: 100%; border-collapse: collapse; font-size: 12px;">${unpaidTableHtml}</table></div>
                                         </div>
                                     </div>
-                                    
-                                    <!-- 납기후 금액 설명 (가로 전체 한줄) -->
-                                    <div style="flex: 0 0 auto; font-size: 11px; color: #7f8c8d; margin-top: 10px; line-height: 1.4; background: #fdfefe; border: 1px solid #eee; padding: 6px 10px; border-radius: 4px; text-align: left;">
-                                        ※ <strong>납기후 금액</strong>이란? 납부 기한을 넘겨서 납부하실 경우, 당월 부과액에 대한 연체료(${futureLateFee > 0 ? futureLateFee.toLocaleString()+'원' : '설정없음'})가 가산된 총 결제 금액입니다.
-                                    </div>
+                                    <div style="flex: 0 0 auto; font-size: 11px; color: #7f8c8d; margin-top: 10px; line-height: 1.4; background: #fdfefe; border: 1px solid #eee; padding: 6px 10px; border-radius: 4px; text-align: left;">※ <strong>납기후 금액</strong>이란? 납부 기한을 넘겨서 납부하실 경우, 당월 부과액에 대한 연체료(${futureLateFee > 0 ? futureLateFee.toLocaleString()+'원' : '설정없음'})가 가산된 총 결제 금액입니다.</div>
                                 </div>
-
-                                <!-- 3단: 상세 내역 (하단) -->
                                 <div style="height: 99mm; padding: 10mm 15mm; box-sizing: border-box; font-size: 12px;">
                                     <h3 style="margin: 0 0 10px 0; border-bottom: 2px solid #000; padding-bottom: 5px; font-size: 16px;">당월 부과 상세 내역</h3>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; row-gap: 6px;">
-                                        ${details.map(d => `
-                                            <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #ccc; padding-bottom: 3px;">
-                                                <span>${escapeHtml(d.name)}</span>
-                                                <span>${d.amt.toLocaleString()}</span>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                    <div style="margin-top: 15px; border-top: 2px solid #333; padding-top: 8px; display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
-                                        <span>당월 부과액 합계</span>
-                                        <span>${roomCurrentBill.toLocaleString()} 원</span>
-                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; row-gap: 6px;">${details.map(d => `<div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #ccc; padding-bottom: 3px;"><span>${escapeHtml(d.name)}</span><span>${d.amt.toLocaleString()}</span></div>`).join('')}</div>
+                                    <div style="margin-top: 15px; border-top: 2px solid #333; padding-top: 8px; display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;"><span>당월 부과액 합계</span><span>${roomCurrentBill.toLocaleString()} 원</span></div>
                                 </div>
                             </div>
                         `;
+                    };
+
+                    let previewHtml = '';
+                    if (viewMode === 'paper') {
+                        previewHtml = getPaperBillHtml(currentRoom, true);
                     } else {
+                        const { unpaid, lateFee, unpaidTableHtml, roomCurrentBill, details, totalAmount, futureLateFee, afterDueDateAmount } = getRoomBillData(currentRoom);
+                        const householdsConfig = bData.households || {};
+                        const roomInfo = householdsConfig[currentRoom] || {};
+                        const residentName = roomInfo.residentName || '입주자';
+                        const displayRoom = currentRoom.endsWith('호') ? currentRoom : currentRoom + '호';
+
                         previewHtml = `
                             <div style="width: 100%; max-width: 400px; background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); margin: 0 auto; overflow: hidden; font-family: 'Pretendard', sans-serif; box-sizing: border-box;">
                                 <div style="background: linear-gradient(135deg, #2980b9, #2c3e50); color: white; padding: 20px 15px; text-align: center; position: relative;">
@@ -646,10 +577,10 @@ const loadBillManagement = async () => {
                                         ${escapeHtml(noticeText).replace(/\n/g, '<br>')}
                                     </div>
                                     
-                                    <div style="font-size: 11px; color: #7f8c8d; display: flex; justify-content: space-between; margin-top: 15px; padding: 8px; border-top: 1px dashed #eee; background: #f8f9fa; border-radius: 8px;">
-                                        <div style="flex: 1; text-align: center; border-right: 1px solid #ddd;">${(c1Name || c1Phone) ? `${escapeHtml(c1Name)}<br><strong style="color:#2c3e50;">${escapeHtml(c1Phone)}</strong>` : '&nbsp;'}</div>
-                                        <div style="flex: 1; text-align: center; border-right: 1px solid #ddd;">${(c2Name || c2Phone) ? `${escapeHtml(c2Name)}<br><strong style="color:#2c3e50;">${escapeHtml(c2Phone)}</strong>` : '&nbsp;'}</div>
-                                        <div style="flex: 1; text-align: center;">${(c3Name || c3Phone) ? `${escapeHtml(c3Name)}<br><strong style="color:#2c3e50;">${escapeHtml(c3Phone)}</strong>` : '&nbsp;'}</div>
+                                    <div style="font-size: 12px; color: #555; display: flex; flex-direction: column; gap: 8px; margin-top: 15px; padding: 15px 10px; border-top: 1px dashed #eee; background: #f8f9fa; border-radius: 8px; text-align: center;">
+                                        ${(c1Name || c1Phone) ? `<div><strong>${escapeHtml(c1Name)}</strong> : <strong style="color:#2c3e50;">${escapeHtml(c1Phone)}</strong></div>` : ''}
+                                        ${(c2Name || c2Phone) ? `<div><strong>${escapeHtml(c2Name)}</strong> : <strong style="color:#2c3e50;">${escapeHtml(c2Phone)}</strong></div>` : ''}
+                                        ${(c3Name || c3Phone) ? `<div><strong>${escapeHtml(c3Name)}</strong> : <strong style="color:#2c3e50;">${escapeHtml(c3Phone)}</strong></div>` : ''}
                                     </div>
                                 </div>
                             </div>
@@ -686,9 +617,47 @@ const loadBillManagement = async () => {
                         <!-- 하단 액션 버튼 -->
                         <div style="display: flex; justify-content: flex-end; gap: 10px;">
                             ${viewMode === 'paper' 
-                                ? `<button id="printBtn" style="background: #2c3e50; color: white; border: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined" style="font-size: 18px;">print</span> 현재 호실 인쇄하기</button>`
+                                ? `<button id="btnExportModal" style="background: #8e44ad; color: white; border: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined" style="font-size: 18px;">download</span> 내보내기</button>
+                                   <button id="btnPrintModal" style="background: #2c3e50; color: white; border: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined" style="font-size: 18px;">print</span> 인쇄하기</button>`
                                 : `<button id="sendNardBtn" style="background: #2980b9; color: white; border: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;"><span class="material-symbols-outlined" style="font-size: 18px;">send</span> 나드로 고지서 발송</button>`
                             }
+                        </div>
+                    `;
+
+                    // 출력 및 내보내기 공통 모달 UI 주입
+                    billContent.innerHTML += `
+                        <div id="bamModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:6000; justify-content:center; align-items:center;">
+                            <div style="background:white; padding:25px; border-radius:12px; width:90%; max-width:400px; box-shadow:0 4px 20px rgba(0,0,0,0.2);">
+                                <h3 id="bamTitle" style="margin-top:0; color:#2c3e50; margin-bottom: 20px;">고지서 인쇄 / 내보내기</h3>
+                                
+                                <div id="bamFormatGroup" style="margin-bottom:15px;">
+                                    <label style="display:block; font-size:12px; color:#7f8c8d; margin-bottom:5px; font-weight:bold;">내보내기 형식</label>
+                                    <select id="bamFormat" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px; font-size:13px; outline:none;">
+                                        <option value="pdf">PDF 문서 (다중 페이지)</option>
+                                        <option value="jpg">JPG 이미지 (개별 파일)</option>
+                                    </select>
+                                </div>
+
+                                <div style="margin-bottom:15px;">
+                                    <label style="display:block; font-size:12px; color:#7f8c8d; margin-bottom:5px; font-weight:bold;">대상 세대 선택</label>
+                                    <select id="bamTarget" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px; font-size:13px; outline:none;">
+                                        <option value="current">현재 화면 호실 (${escapeHtml(currentRoom)})</option>
+                                        <option value="all">전체 호실 일괄 처리 (${sortedRooms.length}세대)</option>
+                                        <option value="select">일부 호실 직접 선택...</option>
+                                    </select>
+                                </div>
+
+                                <div id="bamRoomSelectGroup" style="display:none; margin-bottom:15px; max-height:180px; overflow-y:auto; border:1px solid #eee; border-radius:4px; padding:10px; background:#f8f9fa;">
+                                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                        ${sortedRooms.map(r => `<label style="display:flex; align-items:center; gap:5px; font-size:13px; cursor:pointer;"><input type="checkbox" class="bam-room-cb" value="${r}" checked style="margin:0; width:16px; height:16px;"> ${escapeHtml(r)}</label>`).join('')}
+                                    </div>
+                                </div>
+
+                                <div style="display:flex; gap:10px; margin-top: 25px;">
+                                    <button id="bamExecuteBtn" style="flex:1; background:#2980b9; color:white; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">실행</button>
+                                    <button id="bamCancelBtn" style="flex:1; background:#95a5a6; color:white; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">취소</button>
+                                </div>
+                            </div>
                         </div>
                     `;
 
@@ -699,28 +668,107 @@ const loadBillManagement = async () => {
                     document.getElementById('modeOnlineBtn').addEventListener('click', () => { viewMode = 'online'; renderStatement(); });
 
                     if (viewMode === 'paper') {
-                        document.getElementById('printBtn').addEventListener('click', () => {
-                            const printContents = document.getElementById('printArea').outerHTML;
+                        let currentBamAction = 'print'; // 'print' or 'export'
+                        
+                        const openBamModal = (action) => {
+                            currentBamAction = action;
+                            document.getElementById('bamTitle').textContent = action === 'print' ? '고지서 인쇄' : '고지서 내보내기 (다운로드)';
+                            document.getElementById('bamFormatGroup').style.display = action === 'export' ? 'block' : 'none';
+                            document.getElementById('bamModal').style.display = 'flex';
+                        };
+
+                        document.getElementById('btnPrintModal').addEventListener('click', () => openBamModal('print'));
+                        document.getElementById('btnExportModal').addEventListener('click', () => openBamModal('export'));
+                        document.getElementById('bamCancelBtn').addEventListener('click', () => document.getElementById('bamModal').style.display = 'none');
+
+                        document.getElementById('bamTarget').addEventListener('change', (e) => {
+                            document.getElementById('bamRoomSelectGroup').style.display = e.target.value === 'select' ? 'block' : 'none';
+                        });
+
+                        document.getElementById('bamExecuteBtn').addEventListener('click', async () => {
+                            let targets = [];
+                            const mode = document.getElementById('bamTarget').value;
+                            if (mode === 'current') targets = [currentRoom];
+                            else if (mode === 'all') targets = sortedRooms;
+                            else {
+                                targets = Array.from(document.querySelectorAll('.bam-room-cb:checked')).map(cb => cb.value);
+                            }
                             
-                            const printWindow = window.open('', '_blank');
-                            printWindow.document.write(`
-                                <html>
-                                    <head>
-                                        <title>${currentRoom}호 고지서 인쇄</title>
-                                        <style>
-                                            @page { size: A4 portrait; margin: 0; }
-                                            body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                                        </style>
-                                    </head>
-                                    <body>
-                                        ${printContents}
-                                        <script>
-                                            window.onload = function() { window.print(); window.close(); }
-                                        </script>
-                                    </body>
-                                </html>
-                            `);
-                            printWindow.document.close();
+                            if (targets.length === 0) return alert('선택된 대상 호실이 없습니다.');
+                            
+                            const execBtn = document.getElementById('bamExecuteBtn');
+                            execBtn.disabled = true;
+                            execBtn.textContent = '처리 중...';
+
+                            try {
+                                if (currentBamAction === 'print') {
+                                    // 인쇄 모드
+                                    const htmlStr = targets.map(r => getPaperBillHtml(r, false)).join('');
+                                    const printWindow = window.open('', '_blank');
+                                    printWindow.document.write(`
+                                        <html><head>
+                                            <title>고지서 인쇄</title>
+                                            <style>@page { size: A4 portrait; margin: 0; } body { margin: 0; padding: 0; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }</style>
+                                        </head><body>
+                                            ${htmlStr}
+                                            <script>window.onload = function() { setTimeout(() => { window.print(); window.close(); }, 500); }<\/script>
+                                        </body></html>
+                                    `);
+                                    printWindow.document.close();
+                                    document.getElementById('bamModal').style.display = 'none';
+                                } else {
+                                    // 내보내기 모드 (PDF, JPG)
+                                    const format = document.getElementById('bamFormat').value;
+                                    
+                                    // 라이브러리 동적 로드 (안되어 있는 경우)
+                                    const loadScript = (src) => new Promise(resolve => {
+                                        if(document.querySelector(`script[src="${src}"]`)) return resolve();
+                                        const s = document.createElement('script'); s.src = src; s.onload = resolve; document.head.appendChild(s);
+                                    });
+                                    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+                                    if (format === 'pdf') {
+                                        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+                                    }
+
+                                    const hiddenDiv = document.createElement('div');
+                                    hiddenDiv.style.position = 'absolute'; hiddenDiv.style.left = '-9999px'; hiddenDiv.style.top = '0';
+                                    document.body.appendChild(hiddenDiv);
+
+                                    if (format === 'pdf') {
+                                        const { jsPDF } = window.jspdf;
+                                        const pdf = new jsPDF('p', 'mm', 'a4');
+                                        
+                                        for (let i = 0; i < targets.length; i++) {
+                                            hiddenDiv.innerHTML = getPaperBillHtml(targets[i], false);
+                                            const canvas = await html2canvas(hiddenDiv.firstElementChild, { scale: 2, useCORS: true });
+                                            const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                                            if (i > 0) pdf.addPage();
+                                            pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+                                        }
+                                        pdf.save(`고지서_${statementMonth}_${targets.length}세대.pdf`);
+                                    } else {
+                                        // JPG 다운로드 (브라우저 다중 다운로드 허용 필요할 수 있음)
+                                        for (let i = 0; i < targets.length; i++) {
+                                            hiddenDiv.innerHTML = getPaperBillHtml(targets[i], false);
+                                            const canvas = await html2canvas(hiddenDiv.firstElementChild, { scale: 2, useCORS: true });
+                                            const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                                            const link = document.createElement('a');
+                                            link.href = imgData; link.download = `고지서_${statementMonth}_${targets[i]}.jpg`;
+                                            link.click();
+                                            await new Promise(r => setTimeout(r, 200)); // 다운로드 간 간격 확보
+                                        }
+                                    }
+                                    document.body.removeChild(hiddenDiv);
+                                    document.getElementById('bamModal').style.display = 'none';
+                                    alert('내보내기가 완료되었습니다.');
+                                }
+                            } catch (e) {
+                                console.error(e);
+                                alert('처리 중 오류가 발생했습니다.');
+                            } finally {
+                                execBtn.disabled = false;
+                                execBtn.textContent = '실행';
+                            }
                         });
                     } else {
                         document.getElementById('sendNardBtn').addEventListener('click', () => {
