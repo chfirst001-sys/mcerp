@@ -57,7 +57,7 @@ const loadSubModule = async (tabId) => {
     
     try {
         // 폴더 구조화된 개별 파일을 동적으로 로드 (Lazy Loading)
-        const module = await import(`./accounting/${tabId}.js?v=20240408`);
+        const module = await import(`./accounting/${tabId}.js?v=20260415_02`);
         module.render(content);
     } catch (e) {
         console.error(`Sub-module load failed (${tabId}):`, e);

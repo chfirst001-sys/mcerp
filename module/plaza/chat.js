@@ -208,8 +208,9 @@ const openChatRoom = (container, targetUid, targetName) => {
                 if (modelDoc.exists()) {
                     const data = modelDoc.data();
                     const localVer = localStorage.getItem('user_ai_version');
+                    const localMeta = JSON.parse(localStorage.getItem('user_ai_meta') || '{}');
                     
-                    // 모델이 없거나 버전이 다를 때 안내
+                    // 모델이 없거나, 버전이 다르거나, 로컬 메타데이터에 답변 데이터가 없으면 강제 업데이트
                     if (!localVer) {
                         statusBar.style.background = '#fdf2e9'; statusBar.style.color = '#e67e22'; statusBar.style.borderBottomColor = '#f8c471';
                         statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">info</span> 최초 1회 AI 모델 다운로드가 필요합니다. 좌측 상단(☰) > [AI 설정] 메뉴를 이용해주세요.';
@@ -219,7 +220,7 @@ const openChatRoom = (container, targetUid, targetName) => {
                         document.getElementById('sendChatMsgBtn').disabled = true;
                         document.getElementById('sendChatMsgBtn').style.opacity = '0.5';
                         return; // 모델 로딩 중단
-                    } else if (data.version.toString() !== localVer) {
+                    } else if (data.version.toString() !== localVer || !localMeta.trainingData) {
                         statusBar.style.background = '#e8f4f8'; statusBar.style.color = '#2980b9'; statusBar.style.borderBottomColor = '#bce0fd';
                         statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle; animation:spin 1s linear infinite;">download</span> 최신 AI 모델로 자동 업데이트 중입니다...';
                         
@@ -292,23 +293,24 @@ const openChatRoom = (container, targetUid, targetName) => {
                     
                     const prediction = userAiModel.predict(inputTensor);
                     const scores = prediction.dataSync();
-                    const maxScore = Math.max(...scores);
-                    const intentIdx = scores.indexOf(maxScore);
+                    const intentIdx = scores.indexOf(Math.max(...scores));
                     
-                    let aiResponse = "무슨 말씀이신지 이해하지 못했어요. 다르게 표현해주실 수 있나요?";
-                    if (maxScore > 0.4) {
-                        const predictedTag = userAiClasses[intentIdx];
-                        const responses = userAiResponses[predictedTag];
-                        if (responses && responses.length > 0) {
-                            aiResponse = responses[Math.floor(Math.random() * responses.length)];
-                        } else {
-                            aiResponse = `[의도 파악됨: ${predictedTag}] 하지만 정의된 답변이 없습니다.\n(새 모델을 배포한 후 좌측 메뉴의 'AI 설정'에서 최신 모델로 업데이트 해보세요.)`;
-                        }
-                        // --- 액션 연동 ---
-                        if (predictedTag === 'create_memo') {
-                            document.dispatchEvent(new CustomEvent('openNardModal'));
-                        }
+                    const predictedTag = userAiClasses[intentIdx];
+                    const responses = userAiResponses[predictedTag];
+                    let aiResponse;
+
+                    if (responses && responses.length > 0) {
+                        aiResponse = responses[Math.floor(Math.random() * responses.length)];
+                    } else {
+                        // 답변이 없는 경우 (데이터셋이 잘못되었거나, 동기화 문제)
+                        aiResponse = "음... 그건 제가 아직 배우지 않은 내용이에요. 다른 질문을 해주시겠어요?";
                     }
+
+                    // --- 액션 연동 ---
+                    if (predictedTag === 'create_memo') {
+                        document.dispatchEvent(new CustomEvent('openNardModal'));
+                    }
+                    
                     inputTensor.dispose(); prediction.dispose();
 
                     await addDoc(collection(db, "chats", chatId, "messages"), { senderId: 'ai_friend', text: aiResponse, createdAt: serverTimestamp() });
