@@ -50,6 +50,7 @@
             <li data-module="member_manage"><span class="material-symbols-outlined">manage_accounts</span> 회원관리</li>
             <li data-module="db_manage"><span class="material-symbols-outlined">database</span> DB관리</li>
             <li data-action="settings"><span class="material-symbols-outlined">settings</span> 설정</li>
+            <li data-action="ai_settings"><span class="material-symbols-outlined">smart_toy</span> AI 설정</li>
             <li id="sidebarInstallBtn" class="hidden"><span class="material-symbols-outlined">install_mobile</span> 앱 설치 (홈 화면 추가)</li>
         </ul>
     </aside>
@@ -168,6 +169,24 @@
         </div>
     </div>
 
+    <!-- AI 설정 모달 -->
+    <div id="aiSettingsModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 6000; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="margin: 0; color: #2c3e50;">AI 설정 및 모델 관리</h3>
+                <button id="closeAiSettingsModalBtn" style="background: none; border: none; cursor: pointer; color: #7f8c8d; padding: 0;"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div style="margin-bottom: 20px; font-size: 13px; color: #34495e;">
+                <div style="margin-bottom: 10px; background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #eee;">내 기기 설치 버전: <br><strong id="localAiVersion" style="color: #2980b9; display: inline-block; margin-top: 4px; font-size: 14px;">-</strong></div>
+                <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #eee;">서버 최신 배포 버전: <br><strong id="serverAiVersion" style="color: #27ae60; display: inline-block; margin-top: 4px; font-size: 14px;">확인 중...</strong></div>
+            </div>
+            <div id="aiDownloadStatus" style="font-size: 12px; font-weight: bold; color: #f39c12; margin-bottom: 15px; text-align: center; display: none;">다운로드 진행 중...</div>
+            <button id="downloadAiModelBtn" style="width: 100%; background: #2980b9; color: white; border: none; padding: 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; display: flex; justify-content: center; align-items: center; gap: 6px; transition: background 0.2s;">
+                <span class="material-symbols-outlined" style="font-size: 18px;">download</span> 최신 모델 다운로드
+            </button>
+        </div>
+    </div>
+
     <!-- 통합 검색 모달 -->
     <div id="searchModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 6000; justify-content: center; align-items: flex-start; padding-top: 80px;">
         <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
@@ -224,6 +243,6 @@
     </div>
 
     <!-- 코드를 크게 업데이트할 때마다 v= 뒤의 버전 숫자를 올려주세요 -->
-    <script type="module" src="js/main.js?v=20260410_20"></script>
+    <script type="module" src="js/main.js?v=20260415_01"></script>
 </body>
 </html>

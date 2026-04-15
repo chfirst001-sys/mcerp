@@ -6,17 +6,7 @@ let unsubMessages = null;
 let userAiModel = null;
 let userAiVocab = [];
 let userAiClasses = [];
-
-// Base64를 다시 ArrayBuffer(바이너리)로 복원하는 함수
-const base64ToBuffer = (base64) => {
-    const binary_string = atob(base64);
-    const len = binary_string.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binary_string.charCodeAt(i);
-    }
-    return bytes.buffer;
-};
+let userAiResponses = {};
 
 // 의존성 라이브러리(TensorFlow.js) 동적 로드
 const loadTFJS = async () => {
@@ -219,19 +209,38 @@ const openChatRoom = (container, targetUid, targetName) => {
                     const data = modelDoc.data();
                     const localVer = localStorage.getItem('user_ai_version');
                     
-                    // 버전이 다르거나 모델이 아예 없으면 DB에서 다운로드 후 브라우저에 캐싱
-                    if (data.version.toString() !== localVer || !localVer) {
-                        statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle; animation:spin 1s linear infinite;">download</span> 최신 AI 모델을 다운로드 중입니다...';
+                    // 모델이 없거나 버전이 다를 때 안내
+                    if (!localVer) {
+                        statusBar.style.background = '#fdf2e9'; statusBar.style.color = '#e67e22'; statusBar.style.borderBottomColor = '#f8c471';
+                        statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">info</span> 최초 1회 AI 모델 다운로드가 필요합니다. 좌측 상단(☰) > [AI 설정] 메뉴를 이용해주세요.';
                         
-                        const topology = JSON.parse(data.topology);
-                        const weightSpecs = JSON.parse(data.weightSpecs);
-                        const weightData = base64ToBuffer(data.weightData);
+                        document.getElementById('chatMessageInput').disabled = true;
+                        document.getElementById('chatMessageInput').placeholder = 'AI 모델 다운로드 후 대화가 가능합니다.';
+                        document.getElementById('sendChatMsgBtn').disabled = true;
+                        document.getElementById('sendChatMsgBtn').style.opacity = '0.5';
+                        return; // 모델 로딩 중단
+                    } else if (data.version.toString() !== localVer) {
+                        statusBar.style.background = '#e8f4f8'; statusBar.style.color = '#2980b9'; statusBar.style.borderBottomColor = '#bce0fd';
+                        statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle; animation:spin 1s linear infinite;">download</span> 최신 AI 모델로 자동 업데이트 중입니다...';
+                        
+                        try {
+                            const topology = JSON.parse(data.topology);
+                            const weightSpecs = JSON.parse(data.weightSpecs);
+                            const weightData = base64ToBuffer(data.weightData);
 
-                        const loadedModel = await window.tf.loadLayersModel(window.tf.io.fromMemory(topology, weightSpecs, weightData));
-                        await loadedModel.save('indexeddb://user-ai-model'); // 다운로드한 모델을 기기에 저장
-                        
-                        localStorage.setItem('user_ai_version', data.version.toString());
-                        localStorage.setItem('user_ai_meta', JSON.stringify({vocab: data.vocab, classes: data.classes}));
+                            const loadedModel = await window.tf.loadLayersModel(window.tf.io.fromMemory(topology, weightSpecs, weightData));
+                            await loadedModel.save('indexeddb://user-ai-model');
+                            
+                            localStorage.setItem('user_ai_version', data.version.toString());
+                            localStorage.setItem('user_ai_meta', JSON.stringify({vocab: data.vocab, classes: data.classes, trainingData: data.trainingData}));
+                            
+                            statusBar.style.background = '#eafaf1'; statusBar.style.color = '#27ae60'; statusBar.style.borderBottomColor = '#a9dfbf';
+                            statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">check_circle</span> 모델 업데이트 완료!';
+                        } catch (err) {
+                            console.error("모델 자동 업데이트 실패:", err);
+                            statusBar.style.background = '#fadbd8'; statusBar.style.color = '#c0392b';
+                            statusBar.innerHTML = '업데이트 실패. [AI 설정]을 이용해 수동으로 업데이트해주세요.';
+                        }
                     }
                     
                     // IndexedDB(기기)에서 초고속으로 모델 로드
@@ -239,6 +248,11 @@ const openChatRoom = (container, targetUid, targetName) => {
                     const meta = JSON.parse(localStorage.getItem('user_ai_meta'));
                     userAiVocab = meta.vocab;
                     userAiClasses = meta.classes;
+                    const userTrainingData = meta.trainingData || [];
+                    userAiResponses = {};
+                    userTrainingData.forEach(intent => {
+                        userAiResponses[intent.tag] = intent.responses;
+                    });
                     
                     statusBar.style.background = '#eafaf1'; statusBar.style.color = '#27ae60'; statusBar.style.borderBottomColor = '#a9dfbf';
                     statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">check_circle</span> AI 비서가 준비되었습니다.';
@@ -283,10 +297,17 @@ const openChatRoom = (container, targetUid, targetName) => {
                     
                     let aiResponse = "무슨 말씀이신지 이해하지 못했어요. 다르게 표현해주실 수 있나요?";
                     if (maxScore > 0.4) {
-                        // 일치하는 의도(Tag)를 찾았으나, 클라이언트에는 responses DB가 없으므로 API 확장 전 기본 답변을 제공하거나 미리 캐싱할 수 있습니다.
-                        // (설계 단계의 편의를 위해 임시로 tag 이름 자체로 답변 구성)
                         const predictedTag = userAiClasses[intentIdx];
-                        aiResponse = `[의도 파악됨: ${predictedTag} / 확률: ${(maxScore*100).toFixed(0)}%] 해당 기능으로 곧 연동될 예정입니다.`;
+                        const responses = userAiResponses[predictedTag];
+                        if (responses && responses.length > 0) {
+                            aiResponse = responses[Math.floor(Math.random() * responses.length)];
+                        } else {
+                            aiResponse = `[의도 파악됨: ${predictedTag}] 하지만 정의된 답변이 없습니다.\n(새 모델을 배포한 후 좌측 메뉴의 'AI 설정'에서 최신 모델로 업데이트 해보세요.)`;
+                        }
+                        // --- 액션 연동 ---
+                        if (predictedTag === 'create_memo') {
+                            document.dispatchEvent(new CustomEvent('openNardModal'));
+                        }
                     }
                     inputTensor.dispose(); prediction.dispose();
 

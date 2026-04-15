@@ -672,7 +672,8 @@ const renderAITab = () => {
                 
                 // 모델 데이터를 통째로 Firestore 문서 하나에 압축 저장
                 await setDoc(doc(db, "system", "ai_model"), {
-                    version: Date.now(), vocab: aiVocab, classes: aiClasses,
+                    version: Date.now(), vocab: aiVocab, classes: aiClasses, 
+                    trainingData: trainingData,
                     topology: JSON.stringify(artifacts.modelTopology), weightSpecs: JSON.stringify(artifacts.weightSpecs),
                     weightData: weightBase64
                 });

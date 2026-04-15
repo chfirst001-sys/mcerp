@@ -5,7 +5,7 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from
 import CryptoJS from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm"; // 검색 시 암호화된 나드 복호화용
 
 // 앱 버전 (코드를 업데이트할 때마다 이 값을 변경하면 브라우저가 기존 캐시를 버리고 최신 파일을 불러옵니다)
-const APP_VERSION = "20240424";
+const APP_VERSION = "20260415_01";
 
 // Firebase 콘솔에서 발급받은 설정값
 const firebaseConfig = {
@@ -432,6 +432,122 @@ if (saveSettingsBtn) saveSettingsBtn.addEventListener('click', () => {
     if (currentLoadedModule === 'nard') loadModule('nard'); // 모드 변경사항 즉시 적용
 });
 
+
+// === AI 설정 모달 기능 ===
+const loadTFJSForMain = async () => {
+    if (window.tf) return true;
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js";
+        script.onload = () => resolve(true);
+        document.head.appendChild(script);
+    });
+};
+
+const base64ToBufferMain = (base64) => {
+    const binary_string = atob(base64);
+    const len = binary_string.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
+
+const aiSettingsModal = document.getElementById('aiSettingsModal');
+const closeAiSettingsModalBtn = document.getElementById('closeAiSettingsModalBtn');
+const downloadAiModelBtn = document.getElementById('downloadAiModelBtn');
+
+document.querySelector('li[data-action="ai_settings"]')?.addEventListener('click', async () => {
+    aiSettingsModal.style.display = 'flex';
+    toggleSidebar(); 
+    
+    const localVerEl = document.getElementById('localAiVersion');
+    const serverVerEl = document.getElementById('serverAiVersion');
+    
+    const localVer = localStorage.getItem('user_ai_version');
+    localVerEl.textContent = localVer ? new Date(parseInt(localVer)).toLocaleString('ko-KR') : '설치된 모델 없음';
+    
+    serverVerEl.textContent = '확인 중...';
+    try {
+        const modelDoc = await getDoc(doc(db, "system", "ai_model"));
+        if (modelDoc.exists()) {
+            const serverVer = modelDoc.data().version;
+            serverVerEl.textContent = serverVer ? new Date(parseInt(serverVer)).toLocaleString('ko-KR') : '버전 정보 없음';
+            
+            if (!localVer) {
+                downloadAiModelBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">download</span> 첫 모델 다운로드';
+                downloadAiModelBtn.style.background = '#2980b9';
+            } else if (localVer !== serverVer.toString()) {
+                downloadAiModelBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">update</span> 최신 모델로 업데이트';
+                downloadAiModelBtn.style.background = '#27ae60';
+            } else {
+                downloadAiModelBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">check_circle</span> 이미 최신 버전입니다';
+                downloadAiModelBtn.style.background = '#95a5a6';
+            }
+            downloadAiModelBtn.disabled = false;
+        } else {
+            serverVerEl.textContent = '배포된 모델 없음';
+            downloadAiModelBtn.disabled = true;
+            downloadAiModelBtn.style.background = '#95a5a6';
+        }
+    } catch (e) {
+        console.error(e);
+        serverVerEl.textContent = '오류 발생';
+    }
+});
+
+if (closeAiSettingsModalBtn) closeAiSettingsModalBtn.addEventListener('click', () => { aiSettingsModal.style.display = 'none'; });
+
+if (downloadAiModelBtn) {
+    downloadAiModelBtn.addEventListener('click', async () => {
+        const statusEl = document.getElementById('aiDownloadStatus');
+        statusEl.style.display = 'block';
+        statusEl.textContent = '텐서플로우 엔진을 로드하는 중...';
+        downloadAiModelBtn.disabled = true;
+        downloadAiModelBtn.style.opacity = '0.5';
+
+        try {
+            await loadTFJSForMain();
+            statusEl.textContent = '서버에서 모델 데이터를 가져오는 중...';
+            const modelDoc = await getDoc(doc(db, "system", "ai_model"));
+            if (modelDoc.exists()) {
+                const data = modelDoc.data();
+                
+                statusEl.textContent = '모델을 기기에 설치하는 중...';
+                const topology = JSON.parse(data.topology);
+                const weightSpecs = JSON.parse(data.weightSpecs);
+                const weightData = base64ToBufferMain(data.weightData);
+
+                const loadedModel = await window.tf.loadLayersModel(window.tf.io.fromMemory(topology, weightSpecs, weightData));
+                await loadedModel.save('indexeddb://user-ai-model');
+                
+                localStorage.setItem('user_ai_version', data.version.toString());
+                localStorage.setItem('user_ai_meta', JSON.stringify({vocab: data.vocab, classes: data.classes, trainingData: data.trainingData}));
+                
+                statusEl.style.color = '#27ae60';
+                statusEl.textContent = '다운로드 및 설치가 완료되었습니다!';
+                document.getElementById('localAiVersion').textContent = new Date(parseInt(data.version)).toLocaleString('ko-KR');
+                downloadAiModelBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">check_circle</span> 이미 최신 버전입니다';
+                downloadAiModelBtn.style.background = '#95a5a6';
+            } else {
+                statusEl.style.color = '#e74c3c';
+                statusEl.textContent = '배포된 모델을 찾을 수 없습니다.';
+            }
+        } catch (e) {
+            console.error(e);
+            statusEl.style.color = '#e74c3c';
+            statusEl.textContent = '오류 발생: ' + e.message;
+        } finally {
+            downloadAiModelBtn.disabled = false;
+            downloadAiModelBtn.style.opacity = '1';
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+                statusEl.style.color = '#f39c12';
+            }, 5000);
+        }
+    });
+}
 
 // === 통합 검색 모달 기능 ===
 const globalSearchBtn = document.getElementById('globalSearchBtn');
