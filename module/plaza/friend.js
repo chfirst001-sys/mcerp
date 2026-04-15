@@ -61,16 +61,33 @@ export const render = async (container) => {
         const friendContainer = document.getElementById('friendListContainer');
         if (!friendContainer) return;
         
+        let html = `
+            <div style="display: flex; align-items: center; justify-content: space-between; background: white; padding: 12px 15px; border-radius: 8px; border: 1px solid #eee; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #8e44ad, #3498db); color: white; border-radius: 50%; display: flex; justify-content: center; align-items: center;">
+                        <span class="material-symbols-outlined">smart_toy</span>
+                    </div>
+                    <div>
+                        <div style="font-weight: bold; color: #2c3e50; font-size: 14px;">AI 친구</div>
+                        <div style="font-size: 12px; color: #7f8c8d;">무엇이든 물어보세요!</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 5px;">
+                    <button class="start-chat-btn" data-uid="ai_friend" data-name="AI 친구" style="background: #2980b9; color: white; border: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 2px;">
+                        <span class="material-symbols-outlined" style="font-size: 14px;">chat</span> 채팅
+                    </button>
+                </div>
+            </div>
+        `;
+
         if (docSnap.exists()) {
             const data = docSnap.data();
             const friendUids = data.friendUids || [];
             
             if (friendUids.length === 0) {
-                friendContainer.innerHTML = '<div style="text-align: center; padding: 40px 20px; color: #7f8c8d; background: #f8f9fa; border-radius: 8px; border: 1px dashed #ccc;"><span class="material-symbols-outlined" style="font-size: 40px; color: #bdc3c7; margin-bottom: 10px;">diversity_1</span><br>등록된 친구가 없습니다.<br><span style="font-size:12px;">우측 상단의 추가 버튼을 눌러 친구를 찾아보세요.</span></div>';
-                return;
+                // AI 친구만 표시되므로 '친구 없음' 메시지는 표시하지 않음
             }
 
-            let html = '';
             friendUids.forEach(uid => {
                 const u = allUsersMap[uid];
                 if (u) {
@@ -97,27 +114,28 @@ export const render = async (container) => {
                     `;
                 }
             });
-            friendContainer.innerHTML = html;
-
-            // 1:1 채팅방 열기
-            friendContainer.querySelectorAll('.start-chat-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    sessionStorage.setItem('openChatWith', e.currentTarget.dataset.uid);
-                    sessionStorage.setItem('openChatWithName', e.currentTarget.dataset.name);
-                    const chatTabBtn = document.querySelector('.sub-tab-btn[data-tab="chat"]');
-                    if (chatTabBtn) chatTabBtn.click(); // 채팅 탭으로 이동 트리거
-                });
-            });
-
-            // 친구 삭제 처리
-            friendContainer.querySelectorAll('.remove-friend-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    if (confirm('이 친구를 목록에서 삭제하시겠습니까?')) {
-                        await updateDoc(doc(db, "users", myUid), { friendUids: arrayRemove(e.currentTarget.dataset.uid) });
-                    }
-                });
-            });
         }
+
+        friendContainer.innerHTML = html;
+
+        // 1:1 채팅방 열기
+        friendContainer.querySelectorAll('.start-chat-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                sessionStorage.setItem('openChatWith', e.currentTarget.dataset.uid);
+                sessionStorage.setItem('openChatWithName', e.currentTarget.dataset.name);
+                const chatTabBtn = document.querySelector('.sub-tab-btn[data-tab="chat"]');
+                if (chatTabBtn) chatTabBtn.click(); // 채팅 탭으로 이동 트리거
+            });
+        });
+
+        // 친구 삭제 처리
+        friendContainer.querySelectorAll('.remove-friend-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                if (confirm('이 친구를 목록에서 삭제하시겠습니까?')) {
+                    await updateDoc(doc(db, "users", myUid), { friendUids: arrayRemove(e.currentTarget.dataset.uid) });
+                }
+            });
+        });
     });
 
     // 친구 검색 및 모달

@@ -912,17 +912,19 @@
         let editingCommentId = null;
         let favViewMode = 'fav';
         
-        let tabOrder = JSON.parse(localStorage.getItem('nard-tab-order')) || ['nard', 'tree', 'kanban', 'calendar', 'square'];
+        let tabOrder = JSON.parse(localStorage.getItem('nard-tab-order')) || ['nard', 'ai', 'tree', 'kanban', 'calendar', 'square'];
         
         // Migration: Replace 'fav' with 'square' if present in stored tab order
         if (tabOrder.includes('fav')) {
             tabOrder = tabOrder.map(t => t === 'fav' ? 'square' : t);
             localStorage.setItem('nard-tab-order', JSON.stringify(tabOrder));
         }
+        if (!tabOrder.includes('ai')) { tabOrder.splice(1, 0, 'ai'); } // 'ai' 탭이 없으면 추가
         tabOrder = tabOrder.filter(t => t !== 'mind'); // Ensure mind is removed from bottom nav
 
         const tabDefs = {
             'nard': { icon: 'dashboard' },
+            'ai': { icon: 'smart_toy' },
             'tree': { icon: 'account_tree' },
             'mind': { icon: 'hub' },
             'kanban': { icon: 'view_kanban' },
@@ -6881,7 +6883,13 @@
                 const btn = document.createElement('button');
                 btn.id = `tab-${id}`;
                 const isActive = currentView === id;
-                btn.className = `py-3 flex-1 transition-all flex items-center justify-center rounded-2xl ${isActive ? 'view-tab-active' : 'text-slate-500 hover:bg-slate-500/10'}`;
+
+                let extraClasses = 'tab-item';
+                if (id === 'ai') {
+                    extraClasses += ' architect-only';
+                }
+
+                btn.className = `${extraClasses} py-3 flex-1 transition-all flex items-center justify-center rounded-2xl ${isActive ? 'view-tab-active' : 'text-slate-500 hover:bg-slate-500/10'}`;
                 btn.innerHTML = `<span class="material-symbols-outlined" style="font-size: 24px;">${def.icon}</span>`;
                 
                 btn.onclick = () => handleTabAction(id);

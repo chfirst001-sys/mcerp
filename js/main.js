@@ -66,18 +66,12 @@ const loadModule = async (moduleName) => {
     }
     currentLoadedModule = moduleName;
 
-    // 1. 클릭한 탭을 파란색(활성화)으로 변경
-    tabItems.forEach(tab => {
-        if(tab.dataset.module === moduleName) tab.classList.add('active');
-        else tab.classList.remove('active');
-    });
-
     const headerTitleEl = document.getElementById('currentBuildingName');
     headerTitleEl.removeEventListener('click', toggleNardModeHandler);
 
     // 개인 관련 탭 확인 (나드, 스케쥴, 칸반, 광장, 라이프)
-    if (['nard', 'schedule', 'kanban', 'plaza', 'life'].includes(moduleName)) {
-        const titles = { nard: '나드', schedule: '스케쥴', kanban: '칸반', plaza: '광장', life: '라이프' };
+    if (['nard', 'ai', 'schedule', 'kanban', 'plaza', 'life'].includes(moduleName)) {
+        const titles = { nard: '나드', ai: 'AI', schedule: '스케쥴', kanban: '칸반', plaza: '광장', life: '라이프' };
         headerTitleEl.textContent = titles[moduleName];
         
         if (moduleName === 'nard') {
@@ -93,6 +87,12 @@ const loadModule = async (moduleName) => {
         headerTitleEl.style.cursor = 'default';
         headerTitleEl.title = "";
     }
+        
+        // 1. 클릭한 탭을 파란색(활성화)으로 변경
+        tabItems.forEach(tab => {
+            if(tab.dataset.module === moduleName) tab.classList.add('active');
+            else tab.classList.remove('active');
+        });
 
     // 2. 화면 초기화
     appContent.innerHTML = '<div style="text-align:center; padding: 20px;">불러오는 중...</div>';
@@ -239,8 +239,9 @@ onAuthStateChanged(auth, async (user) => {
         try {
             const userDoc = await getDoc(doc(db, "users", user.uid));
             let roleWeight = 30; // 기본값 (일반 입주자)
+            let role = 'tenant';
             if (userDoc.exists()) {
-                const role = userDoc.data().role;
+                role = userDoc.data().role;
                 const roleWeights = {
                     'architect': 100, 'mc_header': 90, 'mc_front': 80,
                     'mega_admin': 70, 'mega_staff': 60,
@@ -258,6 +259,13 @@ onAuthStateChanged(auth, async (user) => {
             } else {
                 adminTabs.forEach(tab => tab.style.display = 'none');
                 loadModule('plaza'); // 입주민/일반 유저는 광장 화면을 먼저 띄움
+            }
+
+            const architectTabs = document.querySelectorAll('.architect-only');
+            if (role === 'architect') {
+                architectTabs.forEach(tab => tab.style.display = 'flex');
+            } else {
+                architectTabs.forEach(tab => tab.style.display = 'none');
             }
         } catch (e) {
             console.error("권한 확인 실패:", e);

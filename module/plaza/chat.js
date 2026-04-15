@@ -1,8 +1,36 @@
-import { collection, query, where, getDocs, doc, setDoc, addDoc, onSnapshot, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { collection, query, where, getDocs, doc, getDoc, setDoc, addDoc, onSnapshot, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, auth, escapeHtml } from "../../js/main.js";
 
 let unsubChats = null;
 let unsubMessages = null;
+let userAiModel = null;
+let userAiVocab = [];
+let userAiClasses = [];
+
+// Base64를 다시 ArrayBuffer(바이너리)로 복원하는 함수
+const base64ToBuffer = (base64) => {
+    const binary_string = atob(base64);
+    const len = binary_string.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
+
+// 의존성 라이브러리(TensorFlow.js) 동적 로드
+const loadTFJS = async () => {
+    if (window.tf) return true;
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js";
+        script.onload = () => resolve(true);
+        document.head.appendChild(script);
+    });
+};
+
+// 토크나이저 (ai.js와 동일)
+const tokenize = (text) => text.replace(/[.,!?]/g, '').trim().split(/\s+/);
 
 export const cleanup = () => {
     if (unsubChats) { unsubChats(); unsubChats = null; }
@@ -71,15 +99,21 @@ const renderChatList = async (container) => {
         let html = '';
         chats.forEach(chat => {
             const otherUid = chat.participants.find(uid => uid !== myUid) || myUid;
-            const otherUser = allUsersMap[otherUid];
-            const otherName = otherUser ? otherUser.name : '알 수 없음';
+            let otherUser, otherName;
+            if (otherUid === 'ai_friend') {
+                otherName = 'AI 친구';
+                otherUser = { name: 'AI 친구' }; // dummy user object
+            } else {
+                otherUser = allUsersMap[otherUid];
+                otherName = otherUser ? otherUser.name : '알 수 없음';
+            }
             const timeStr = chat.lastMessageTime ? chat.lastMessageTime.toDate().toLocaleTimeString('ko-KR', {hour: '2-digit', minute:'2-digit'}) : '방금 전';
 
             html += `
                 <div class="chat-room-item" data-uid="${otherUid}" data-name="${escapeHtml(otherName)}" style="display: flex; align-items: center; justify-content: space-between; background: white; padding: 15px; border-radius: 8px; border: 1px solid #eee; box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f4f6f8'" onmouseout="this.style.background='#fff'">
                     <div style="display: flex; align-items: center; gap: 12px; overflow: hidden;">
-                        <div style="width: 45px; height: 45px; background: #2c3e50; color: white; border-radius: 50%; display: flex; justify-content: center; align-items: center; flex-shrink: 0;">
-                            <span class="material-symbols-outlined">person</span>
+                        <div style="width: 45px; height: 45px; background: ${otherUid === 'ai_friend' ? 'linear-gradient(135deg, #8e44ad, #3498db)' : '#2c3e50'}; color: white; border-radius: 50%; display: flex; justify-content: center; align-items: center; flex-shrink: 0;">
+                            <span class="material-symbols-outlined">${otherUid === 'ai_friend' ? 'smart_toy' : 'person'}</span>
                         </div>
                         <div style="overflow: hidden;">
                             <div style="font-weight: bold; color: #2c3e50; font-size: 15px; margin-bottom: 4px;">${escapeHtml(otherName)}</div>
@@ -118,6 +152,9 @@ const openChatRoom = (container, targetUid, targetName) => {
                 </button>
                 <div style="font-size: 16px; font-weight: bold;">${escapeHtml(targetName)}</div>
             </div>
+            
+            <!-- AI 다운로드 상태 표시바 (AI 친구일 때만) -->
+            <div id="aiStatusBar" style="display: none; background: #e8f4f8; border-bottom: 1px solid #bce0fd; padding: 8px; text-align: center; font-size: 12px; color: #2980b9; font-weight: bold;"></div>
 
             <!-- 메시지 목록 -->
             <div id="messagesContainer" style="flex: 1; padding: 15px; overflow-y: auto; background: #f4f6f8; display: flex; flex-direction: column; gap: 10px;">
@@ -168,6 +205,56 @@ const openChatRoom = (container, targetUid, targetName) => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight; // 스크롤 맨 아래로 유지
     });
 
+    // AI 챗봇 연결 및 다운로드 관리 로직
+    if (targetUid === 'ai_friend') {
+        const statusBar = document.getElementById('aiStatusBar');
+        statusBar.style.display = 'block';
+        statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle; animation:spin 1s linear infinite;">sync</span> AI 엔진 엔진 연결 중...';
+        
+        setTimeout(async () => {
+            await loadTFJS();
+            try {
+                const modelDoc = await getDoc(doc(db, "system", "ai_model"));
+                if (modelDoc.exists()) {
+                    const data = modelDoc.data();
+                    const localVer = localStorage.getItem('user_ai_version');
+                    
+                    // 버전이 다르거나 모델이 아예 없으면 DB에서 다운로드 후 브라우저에 캐싱
+                    if (data.version.toString() !== localVer || !localVer) {
+                        statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle; animation:spin 1s linear infinite;">download</span> 최신 AI 모델을 다운로드 중입니다...';
+                        
+                        const topology = JSON.parse(data.topology);
+                        const weightSpecs = JSON.parse(data.weightSpecs);
+                        const weightData = base64ToBuffer(data.weightData);
+
+                        const loadedModel = await window.tf.loadLayersModel(window.tf.io.fromMemory(topology, weightSpecs, weightData));
+                        await loadedModel.save('indexeddb://user-ai-model'); // 다운로드한 모델을 기기에 저장
+                        
+                        localStorage.setItem('user_ai_version', data.version.toString());
+                        localStorage.setItem('user_ai_meta', JSON.stringify({vocab: data.vocab, classes: data.classes}));
+                    }
+                    
+                    // IndexedDB(기기)에서 초고속으로 모델 로드
+                    userAiModel = await window.tf.loadLayersModel('indexeddb://user-ai-model');
+                    const meta = JSON.parse(localStorage.getItem('user_ai_meta'));
+                    userAiVocab = meta.vocab;
+                    userAiClasses = meta.classes;
+                    
+                    statusBar.style.background = '#eafaf1'; statusBar.style.color = '#27ae60'; statusBar.style.borderBottomColor = '#a9dfbf';
+                    statusBar.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">check_circle</span> AI 비서가 준비되었습니다.';
+                    setTimeout(() => statusBar.style.display = 'none', 3000);
+                } else {
+                    statusBar.style.background = '#fadbd8'; statusBar.style.color = '#c0392b';
+                    statusBar.innerHTML = '설계자가 아직 서버에 등록한 모델이 없습니다.';
+                }
+            } catch (e) {
+                console.error("AI 초기화 실패:", e);
+                statusBar.style.background = '#fadbd8'; statusBar.style.color = '#c0392b';
+                statusBar.innerHTML = 'AI 다운로드 중 오류가 발생했습니다.';
+            }
+        }, 100);
+    }
+
     // 메시지 전송
     const sendMessage = async () => {
         const text = inputEl.value.trim();
@@ -179,6 +266,35 @@ const openChatRoom = (container, targetUid, targetName) => {
             await setDoc(doc(db, "chats", chatId), { participants: [myUid, targetUid], lastMessage: text, lastMessageTime: serverTimestamp() }, { merge: true });
             // 실제 메시지 내역 추가
             await addDoc(collection(db, "chats", chatId, "messages"), { senderId: myUid, text: text, createdAt: serverTimestamp() });
+
+            // AI 친구 응답 로직
+            if (targetUid === 'ai_friend') {
+                if (!userAiModel) return;
+                setTimeout(async () => {
+                    // 1. 입력 텍스트 예측
+                    const words = tokenize(text);
+                    const bag = userAiVocab.map(w => words.includes(w) ? 1 : 0);
+                    const inputTensor = window.tf.tensor2d([bag]);
+                    
+                    const prediction = userAiModel.predict(inputTensor);
+                    const scores = prediction.dataSync();
+                    const maxScore = Math.max(...scores);
+                    const intentIdx = scores.indexOf(maxScore);
+                    
+                    let aiResponse = "무슨 말씀이신지 이해하지 못했어요. 다르게 표현해주실 수 있나요?";
+                    if (maxScore > 0.4) {
+                        // 일치하는 의도(Tag)를 찾았으나, 클라이언트에는 responses DB가 없으므로 API 확장 전 기본 답변을 제공하거나 미리 캐싱할 수 있습니다.
+                        // (설계 단계의 편의를 위해 임시로 tag 이름 자체로 답변 구성)
+                        const predictedTag = userAiClasses[intentIdx];
+                        aiResponse = `[의도 파악됨: ${predictedTag} / 확률: ${(maxScore*100).toFixed(0)}%] 해당 기능으로 곧 연동될 예정입니다.`;
+                    }
+                    inputTensor.dispose(); prediction.dispose();
+
+                    await addDoc(collection(db, "chats", chatId, "messages"), { senderId: 'ai_friend', text: aiResponse, createdAt: serverTimestamp() });
+                    await setDoc(doc(db, "chats", chatId), { lastMessage: aiResponse, lastMessageTime: serverTimestamp() }, { merge: true });
+                }, 1000);
+            }
+
         } catch (err) {
             console.error("전송 실패:", err); alert("전송에 실패했습니다.");
         }
