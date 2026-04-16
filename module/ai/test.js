@@ -5,7 +5,18 @@ let mainAI;
 export const render = (container, aiContext) => {
     mainAI = aiContext;
     container.innerHTML = `
-        <div style="display: flex; flex-direction: column; height: calc(100% + 40px); margin: -20px; background: #1e293b; overflow: hidden;">
+        <style>
+            .custom-scrollbar-chat::-webkit-scrollbar { width: 6px; }
+            .custom-scrollbar-chat::-webkit-scrollbar-track { background: transparent; }
+            .custom-scrollbar-chat::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 3px; }
+            .custom-scrollbar-chat::-webkit-scrollbar-thumb:hover { background-color: #718096; }
+            .custom-scrollbar-chat::-webkit-scrollbar-button { display: none; }
+            .custom-scrollbar-chat {
+                scrollbar-width: thin;
+                scrollbar-color: #4a5568 transparent;
+            }
+        </style>
+        <div style="display: flex; flex-direction: column; height: calc(100% + 40px); margin: -20px; overflow: hidden;">
             <!-- 채팅 헤더 -->
             <div style="background: #0f172a; padding: 15px 20px; border-bottom: 1px solid #334155; display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 10px;">
@@ -23,7 +34,7 @@ export const render = (container, aiContext) => {
             </div>
 
             <!-- 대화창 -->
-            <div id="aiChatWindow" style="flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; background: #1e293b;">
+            <div id="aiChatWindow" style="flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px;">
                 ${!mainAI.aiModel ? `
                     <div style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px; border: 1px dashed #334155; border-radius: 8px; margin-top: 20px;">
                         아직 메모리에 로드된 모델이 없습니다.<br>
@@ -38,7 +49,9 @@ export const render = (container, aiContext) => {
 
             <!-- 입력창 -->
             <div style="padding: 10px 15px; background: #0f172a; border-top: 1px solid #334155; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">
-                <textarea id="aiChatInput" rows="1" oninput="this.style.height='auto'; this.style.height=(this.scrollHeight)+'px';" placeholder="비서에게 메시지 전송..." ${!mainAI.aiModel ? 'disabled' : ''} style="flex: 1; padding: 10px 15px; background: #1e293b; border: 1px solid #334155; border-radius: 20px; color: white; outline: none; font-size: 14px; resize: none; min-height: 40px; height: 40px; max-height: 120px; line-height: 1.4; font-family: inherit; margin: 0; overflow-y: auto;"></textarea>
+                <div style="flex: 1; background: #1e293b; border: 1px solid #334155; border-radius: 20px; overflow: hidden;">
+                    <textarea id="aiChatInput" class="custom-scrollbar-chat" rows="1" oninput="this.style.height='auto'; this.style.height=(this.scrollHeight)+'px';" placeholder="비서에게 메시지 전송..." ${!mainAI.aiModel ? 'disabled' : ''} style="width: 100%; background: transparent; border: none; color: white; outline: none; font-size: 14px; resize: none; min-height: 40px; height: 40px; max-height: 120px; line-height: 1.4; font-family: inherit; margin: 0; padding: 10px 15px; box-sizing: border-box; overflow-y: auto;"></textarea>
+                </div>
                 <button id="aiChatSendBtn" ${!mainAI.aiModel ? 'disabled' : ''} style="width: 40px; height: 40px; background: #38bdf8; color: #0f172a; border: none; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: ${!mainAI.aiModel ? 'not-allowed' : 'pointer'}; opacity: ${!mainAI.aiModel ? '0.5' : '1'}; flex-shrink: 0;">
                     <span class="material-symbols-outlined" style="font-size: 20px; margin-left: 2px;">send</span>
                 </button>

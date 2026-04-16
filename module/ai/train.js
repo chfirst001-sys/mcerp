@@ -5,7 +5,7 @@ export const render = (container, aiContext) => {
     container.innerHTML = `
         <div id="ai-train-layout" style="height: 100%;">
             <!-- 모델 튜닝 파라미터 -->
-            <div id="ai-hp-form" style="background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; display: flex; flex-direction: column; margin-bottom: 20px; max-width: 600px; margin: 0 auto;">
+            <div id="ai-hp-form" style="display: flex; flex-direction: column; margin-bottom: 20px; max-width: 600px; margin: 0 auto;">
                 <h3 style="margin-top: 0; color: #f1f5f9; font-size: 16px; margin-bottom: 20px;">하이퍼파라미터 튜닝</h3>
                 
                 <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">Epochs (반복 횟수)</label>
@@ -32,7 +32,7 @@ export const render = (container, aiContext) => {
             </div>
 
             <!-- 학습 로그 출력 -->
-            <div id="ai-log-view" style="display: none; height: 100%; background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #334155; flex-direction: column; font-family: 'Courier New', monospace;">
+            <div id="ai-log-view" style="display: none; height: 100%; flex-direction: column; font-family: 'Courier New', monospace;">
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px;">
                     <span style="color: #10b981; font-size: 14px; font-weight: bold;">[TF.js Console] Training Logs</span>
                     <div style="display: flex; gap: 5px;">

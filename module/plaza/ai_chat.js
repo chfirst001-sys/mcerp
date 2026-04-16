@@ -42,6 +42,17 @@ export const renderAIChatRoom = async (container, targetUid, targetName) => {
     const chatId = [myUid, targetUid].sort().join('_');
 
     container.innerHTML = `
+        <style>
+            .custom-scrollbar-chat::-webkit-scrollbar { width: 6px; }
+            .custom-scrollbar-chat::-webkit-scrollbar-track { background: transparent; }
+            .custom-scrollbar-chat::-webkit-scrollbar-thumb { background-color: #bdc3c7; border-radius: 3px; }
+            .custom-scrollbar-chat::-webkit-scrollbar-thumb:hover { background-color: #95a5a6; }
+            .custom-scrollbar-chat::-webkit-scrollbar-button { display: none; }
+            .custom-scrollbar-chat {
+                scrollbar-width: thin;
+                scrollbar-color: #bdc3c7 transparent;
+            }
+        </style>
         <div style="display: flex; flex-direction: column; height: calc(100vh - 165px); background: white; margin: -20px -15px -20px -15px; overflow: hidden;">
             <div style="background: #2c3e50; color: white; padding: 12px 15px; display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
                 <button id="backToChatListBtnAI" style="background: none; border: none; color: white; cursor: pointer; padding: 0; display: flex; align-items: center;">
@@ -57,7 +68,9 @@ export const renderAIChatRoom = async (container, targetUid, targetName) => {
             </div>
 
             <div style="padding: 10px; background: white; border-top: 1px solid #eee; display: flex; gap: 8px; flex-shrink: 0; align-items: center;">
-                <textarea id="chatMessageInputAI" placeholder="메시지를 입력하세요 (엔터키 전송)..." style="flex: 1; border: 1px solid #ccc; border-radius: 20px; padding: 10px 15px; font-size: 14px; resize: none; height: 40px; line-height: 1.4; outline: none; font-family: inherit; margin: 0;"></textarea>
+                <div style="flex: 1; border: 1px solid #ccc; border-radius: 20px; overflow: hidden; background: white;">
+                    <textarea id="chatMessageInputAI" class="custom-scrollbar-chat" placeholder="메시지를 입력하세요..." rows="1" oninput="this.style.height='auto'; this.style.height=(this.scrollHeight)+'px';" style="width: 100%; background: transparent; border: none; outline: none; font-size: 14px; resize: none; min-height: 40px; height: 40px; max-height: 120px; line-height: 1.4; font-family: inherit; margin: 0; padding: 10px 15px; box-sizing: border-box; overflow-y: auto;"></textarea>
+                </div>
                 <button id="sendChatMsgBtnAI" style="background: #2980b9; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer; flex-shrink: 0;">
                     <span class="material-symbols-outlined" style="font-size: 20px; margin-left: 2px;">send</span>
                 </button>

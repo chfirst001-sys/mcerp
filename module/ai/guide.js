@@ -1,6 +1,6 @@
-export const render = (container) => {
+export const render = (container, aiContext) => {
     container.innerHTML = `
-        <div style="max-width: 800px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; color: #f1f5f9; line-height: 1.6;">
+        <div style="max-width: 800px; margin: 0 auto; line-height: 1.6;">
             <h2 style="color: #38bdf8; margin-top: 0; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-bottom: 20px;">📖 AI 비서 학습 스튜디오 사용 설명서</h2>
             
             <div style="margin-bottom: 30px;">

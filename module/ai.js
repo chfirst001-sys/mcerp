@@ -159,8 +159,9 @@ export const init = async (container) => {
                     position: static !important;
                 }
             }
-            .dataset-action-menu { display: flex; align-items: center; gap: 2px; overflow-x: auto; transition: all 0.3s ease; max-width: 0; opacity: 0; white-space: nowrap; }
-            .dataset-action-menu.expanded { max-width: 220px; opacity: 1; margin-right: 4px; }
+            .dataset-action-menu { display: flex; align-items: center; gap: 2px; overflow-x: auto; transition: all 0.3s ease; max-width: 0; opacity: 0; white-space: nowrap; scrollbar-width: none; -ms-overflow-style: none; }
+            .dataset-action-menu::-webkit-scrollbar { display: none; }
+            .dataset-action-menu.expanded { max-width: 90px; opacity: 1; margin-right: 4px; }
             .dataset-action-btn { background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 4px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; }
             .dataset-action-btn:hover { background: #334155; color: white; }
             .dataset-action-btn .material-symbols-outlined { font-size: 16px; }
@@ -177,7 +178,7 @@ export const init = async (container) => {
             <div style="background: linear-gradient(90deg, #1e293b, #0f172a); padding: 20px; border-bottom: 1px solid #334155; flex-shrink: 0;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h2 style="margin: 0; font-size: 20px; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                        <span class="material-symbols-outlined" style="font-size: 28px;">psychology</span> AI 비서 학습 스튜디오
+                        <span class="material-symbols-outlined" style="font-size: 28px;">psychology</span> Ai 학습
                     </h2>
                     <div id="tfStatus" style="font-size: 12px; background: #334155; padding: 4px 8px; border-radius: 12px; display: flex; align-items: center; gap: 4px;">
                         <span class="material-symbols-outlined" style="font-size: 14px; color: #f59e0b;">sync</span> 로딩중...
@@ -203,7 +204,7 @@ export const init = async (container) => {
     const loaded = await loadDependencies();
     const tfStatus = document.getElementById('tfStatus');
     if (loaded) {
-        tfStatus.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px; color: #10b981;">check_circle</span> TF.js Ready';
+        tfStatus.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px; color: #10b981;">check_circle</span> TF.js';
         tfStatus.style.background = '#064e3b';
         tfStatus.style.color = '#34d399';
         
@@ -284,7 +285,7 @@ const loadSubModule = async (tabId) => {
     content.innerHTML = '<div style="text-align: center; padding: 20px; color: #94a3b8;">로딩 중...</div>';
 
     try {
-        const module = await import(`./ai/${tabId}.js?v=20260416_03`);
+        const module = await import(`./ai/${tabId}.js?v=20260416_04`);
         currentSubModule = module;
         module.render(content, aiContext);
     } catch (e) {

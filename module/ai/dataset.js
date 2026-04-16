@@ -29,10 +29,21 @@ export const render = (container, aiContext) => {
             </div>
         </div>
         <div id="ai-dataset-form-container"></div>
-        <div id="ai-dataset-list-container" style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 15px; min-height: 300px;"></div>
+        <div id="ai-dataset-list-container" style="min-height: 300px;"></div>
     `;
     renderDatasetView();
     attachDatasetControlEvents();
+
+    // 컨테이너의 빈 공간 클릭 시 폴더 선택 해제
+    const listContainer = document.getElementById('ai-dataset-list-container');
+    if (listContainer) {
+        listContainer.addEventListener('click', (e) => {
+            if (e.target === listContainer) {
+                mainAI.setSelectedFolderId(null);
+                renderDatasetView();
+            }
+        });
+    }
 };
 
 const renderDatasetView = () => {
@@ -85,7 +96,7 @@ const renderDatasetTree = () => {
                                 <span style="color: #f1f5f9; font-weight: bold;">${escapeHtml(item.name)}</span>
                             </div>
                             <div style="display: flex; align-items: center;">
-                                <div class="dataset-action-menu ${isMenuOpen ? 'expanded' : ''}">
+                                <div class="dataset-action-menu ${isMenuOpen ? 'expanded' : ''}" onwheel="if(event.deltaY !== 0) { event.preventDefault(); this.scrollLeft += event.deltaY; }">
                                     <button title="위로" class="dataset-action-btn move-up-btn" data-id="${item.id}"><span class="material-symbols-outlined">arrow_upward</span></button>
                                     <button title="아래로" class="dataset-action-btn move-down-btn" data-id="${item.id}"><span class="material-symbols-outlined">arrow_downward</span></button>
                                     <button title="들여쓰기" class="dataset-action-btn indent-btn" data-id="${item.id}"><span class="material-symbols-outlined">format_indent_increase</span></button>
@@ -217,6 +228,11 @@ const attachTreeEvents = () => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             const id = e.currentTarget.dataset.id;
+
+            // 수정 버튼 클릭 시, 메뉴가 자동으로 닫히는 타이머를 해제합니다.
+            if (mainAI.menuTimers[id]) {
+                clearTimeout(mainAI.menuTimers[id]);
+            }
             const item = mainAI.aiDataset.find(i => i.id === id);
             if (item.type === 'folder') {
                 const newName = prompt('새 폴더 이름을 입력하세요:', item.name);
@@ -321,7 +337,7 @@ const renderDatasetForm = () => {
     const itemToEdit = mainAI.editingItemId ? mainAI.aiDataset.find(i => i.id === mainAI.editingItemId) : null;
 
     container.innerHTML = `
-        <div id="ai-dataset-form" style="background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px;">
+        <div id="ai-dataset-form" style="margin-bottom: 20px;">
             <h3 style="margin-top: 0; color: #f1f5f9; font-size: 16px; margin-bottom: 15px;">
                 ${mainAI.editingItemId !== null ? '인텐트 수정' : '새 인텐트 추가'}
             </h3>
