@@ -7,7 +7,7 @@ export const render = async (container) => {
     }
 
     container.innerHTML = `
-        <div class="module-card">
+        <div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <h3 style="margin: 0; color: #2c3e50;">친구 목록</h3>
                 <button id="addFriendBtn" style="background: #2980b9; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">+ 친구 추가</button>

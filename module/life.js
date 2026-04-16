@@ -57,21 +57,21 @@ const renderContent = (tabId) => {
 
     if (tabId === 'mall') {
         html = `
-            <div style="padding: 15px; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 15px;">
+            <div>
                 <h3 style="margin-top: 0; color: #2c3e50;"><span class="material-symbols-outlined" style="vertical-align: middle; color: #d35400;">shopping_bag</span> 나드몰 특가 상품</h3>
                 <p style="font-size: 13px; color: #7f8c8d; line-height: 1.5;">GoNard 회원과 입주민들만을 위한 특별한 공동구매 및 생활용품 특가 쇼핑몰입니다.</p>
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 15px;">
-                    <div style="background: #fdfefe; height: 160px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #95a5a6; border: 1px solid #eee; cursor: pointer;">[상품 썸네일 1]</div>
-                    <div style="background: #fdfefe; height: 160px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #95a5a6; border: 1px solid #eee; cursor: pointer;">[상품 썸네일 2]</div>
-                    <div style="background: #fdfefe; height: 160px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #95a5a6; border: 1px solid #eee; cursor: pointer;">[상품 썸네일 3]</div>
-                    <div style="background: #fdfefe; height: 160px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #95a5a6; border: 1px solid #eee; cursor: pointer;">[상품 썸네일 4]</div>
+                    <div style="background: white; border: 1px solid #eee; height: 160px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #95a5a6; cursor: pointer;">[상품 썸네일 1]</div>
+                    <div style="background: white; border: 1px solid #eee; height: 160px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #95a5a6; cursor: pointer;">[상품 썸네일 2]</div>
+                    <div style="background: white; border: 1px solid #eee; height: 160px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #95a5a6; cursor: pointer;">[상품 썸네일 3]</div>
+                    <div style="background: white; border: 1px solid #eee; height: 160px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #95a5a6; cursor: pointer;">[상품 썸네일 4]</div>
                 </div>
             </div>
         `;
     } else {
         const c = cards[tabId];
         html = `
-            <div style="padding: 15px; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 15px;">
+            <div>
                 <h3 style="margin-top: 0; color: #2c3e50;"><span class="material-symbols-outlined" style="vertical-align: middle; color: ${c.color};">${c.icon}</span> ${c.title}</h3>
                 <p style="font-size: 13px; color: #7f8c8d; line-height: 1.5;">${c.desc}</p>
                 <div style="background: #f4f6f8; height: 140px; border-radius: 8px; display: flex; justify-content: center; align-items: center; color: #bdc3c7; border: 1px dashed #ccc; cursor: pointer; text-align: center; padding: 10px; font-size: 13px;">

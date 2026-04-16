@@ -3,10 +3,16 @@ import { db, escapeHtml } from "../js/main.js";
 
 let tfLoaded = false;
 let currentAITab = 'dataset';
+const tabIds = ['dataset', 'train', 'version', 'test', 'guide'];
+let currentTabIndex = 0;
+let subTabButtons = null;
+let lastReclickTime = 0;
+
 let aiModel = null;
 let aiVocab = [];
 let aiClasses = [];
 let editingDataIndex = null;
+let isAddingNewIntent = false;
 let modelStats = {
     isTrained: false,
     lastTrainTime: null,
@@ -99,6 +105,9 @@ const preprocessData = () => {
 };
 
 export const init = async (container) => {
+    currentAITab = 'dataset';
+    currentTabIndex = 0;
+
     container.innerHTML = `
         <style>
             @media (max-width: 768px) {
@@ -109,8 +118,15 @@ export const init = async (container) => {
                     position: static !important;
                 }
             }
+            .ai-sub-tab-menu {
+                -ms-overflow-style: none; /* IE and Edge */
+                scrollbar-width: none; /* Firefox */
+            }
+            .ai-sub-tab-menu::-webkit-scrollbar {
+                display: none; /* Chrome, Safari and Opera */
+            }
         </style>
-        <div class="module-card" style="display: flex; flex-direction: column; height: calc(100vh - 120px); padding: 0; overflow: hidden; background: #0f172a; color: #f1f5f9;">
+        <div style="display: flex; flex-direction: column; height: calc(100vh - 121px); overflow: hidden; background: #0f172a; color: #f1f5f9; margin: -14px -15px -20px -15px;">
             <!-- 헤더 및 탭 영역 -->
             <div style="background: linear-gradient(90deg, #1e293b, #0f172a); padding: 20px; border-bottom: 1px solid #334155; flex-shrink: 0;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -121,12 +137,12 @@ export const init = async (container) => {
                         <span class="material-symbols-outlined" style="font-size: 14px; color: #f59e0b;">sync</span> 로딩중...
                     </div>
                 </div>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="ai-tab-btn active" data-tab="dataset" style="background: #38bdf8; color: #0f172a; border: none; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📊 데이터셋</button>
-                    <button class="ai-tab-btn" data-tab="train" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">⚙️ 학습/튜닝</button>
-                    <button class="ai-tab-btn" data-tab="version" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📈 모델버전</button>
-                    <button class="ai-tab-btn" data-tab="test" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">💬 봇 테스트</button>
-                    <button class="ai-tab-btn" data-tab="guide" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📖 사용 설명서</button>
+                <div class="ai-sub-tab-menu" style="display: flex; gap: 10px; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;">
+                    <button class="ai-tab-btn active" data-tab="dataset" style="flex-shrink: 0; background: #38bdf8; color: #0f172a; border: none; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📊 데이터셋</button>
+                    <button class="ai-tab-btn" data-tab="train" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">⚙️ 학습/튜닝</button>
+                    <button class="ai-tab-btn" data-tab="version" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📈 모델버전</button>
+                    <button class="ai-tab-btn" data-tab="test" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">💬 봇 테스트</button>
+                    <button class="ai-tab-btn" data-tab="guide" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📖 사용 설명서</button>
                 </div>
             </div>
 
@@ -155,14 +171,17 @@ export const init = async (container) => {
     }
 
     const tabBtns = container.querySelectorAll('.ai-tab-btn');
-    tabBtns.forEach(btn => {
+    subTabButtons = tabBtns;
+    tabBtns.forEach((btn, index) => {
         btn.addEventListener('click', (e) => {
+            currentTabIndex = index;
             tabBtns.forEach(b => {
                 b.style.background = '#1e293b'; b.style.color = '#94a3b8'; b.style.border = '1px solid #334155'; b.classList.remove('active');
             });
             e.target.style.background = '#38bdf8'; e.target.style.color = '#0f172a'; e.target.style.border = 'none'; e.target.classList.add('active');
             currentAITab = e.target.dataset.tab;
             renderAITab();
+            e.target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
         });
     });
 
@@ -174,6 +193,9 @@ const renderAITab = () => {
     if (!content) return;
 
     if (currentAITab === 'dataset') {
+        // 탭을 전환할 때마다 '새 인텐트 추가' 상태 초기화
+        if (!content.querySelector('#ai-dataset-layout')) isAddingNewIntent = false;
+
         let listHtml = trainingData.map((d, i) => `
             <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-bottom: 10px;">
@@ -188,14 +210,15 @@ const renderAITab = () => {
             </div>
         `).join('');
 
+        const showForm = isAddingNewIntent || editingDataIndex !== null;
         const itemToEdit = editingDataIndex !== null ? trainingData[editingDataIndex] : null;
 
         content.innerHTML = `
-            <div id="ai-dataset-layout" style="display: flex; gap: 20px; align-items: flex-start;">
+            <div id="ai-dataset-layout">
                 <!-- 데이터 입력 폼 -->
-                <div id="ai-dataset-form" style="flex: 1; background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; position: sticky; top: 0;">
+                <div id="ai-dataset-form" style="display: ${showForm ? 'block' : 'none'}; background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px;">
                     <h3 style="margin-top: 0; color: #f1f5f9; font-size: 16px; margin-bottom: 15px;">
-                        ${editingDataIndex !== null ? '인텐트 수정' : '새 인텐트(의도) 추가'}
+                        ${editingDataIndex !== null ? '인텐트 수정' : '새 인텐트 추가'}
                     </h3>
                     
                     <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">Tag (영문 고유명칭)</label>
@@ -211,17 +234,18 @@ const renderAITab = () => {
                         <button id="aiAddDataBtn" style="flex: 1; background: ${editingDataIndex !== null ? '#f59e0b' : '#10b981'}; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s;">
                             ${editingDataIndex !== null ? '데이터셋 수정' : '목록에 추가'}
                         </button>
-                        ${editingDataIndex !== null ? `<button id="aiCancelEditBtn" style="background: #64748b; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer;">취소</button>` : ''}
+                        ${showForm ? `<button id="aiCancelEditBtn" style="background: #64748b; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer;">취소</button>` : ''}
                     </div>
                 </div>
 
                 <!-- 데이터셋 목록 -->
-                <div style="flex: 2;">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 15px;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h3 style="margin: 0; color: #f1f5f9; font-size: 16px;">학습 데이터셋 목록 (${trainingData.length}개)</h3>
-                        <div style="display: flex; gap: 5px;">
-                            <button id="aiImportDataBtn" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">가져오기</button>
-                            <button id="aiExportDataBtn" style="background: #8b5cf6; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">내보내기</button>
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <button id="aiAddNewIntentBtn" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold;">새 인텐트</button>
+                            <button id="aiImportDataBtn" title="가져오기" style="background: #10b981; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center;"><span class="material-symbols-outlined" style="font-size: 18px;">file_upload</span></button>
+                            <button id="aiExportDataBtn" title="내보내기" style="background: #8b5cf6; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center;"><span class="material-symbols-outlined" style="font-size: 18px;">file_download</span></button>
                             <button id="aiSaveDataBtn" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">로컬에 저장</button>
                             <input type="file" id="aiImportFileInput" accept=".json" style="display: none;">
                         </div>
@@ -231,29 +255,42 @@ const renderAITab = () => {
             </div>
         `;
 
-        document.getElementById('aiAddDataBtn').addEventListener('click', () => {
-            const tag = document.getElementById('aiTagInput').value.trim();
-            const patterns = document.getElementById('aiPatternsInput').value.split(/[,|]/).map(s => s.trim()).filter(s => s);
-            const responses = document.getElementById('aiResponsesInput').value.split(/[,|]/).map(s => s.trim()).filter(s => s);
+        if (showForm) {
+            document.getElementById('aiAddDataBtn').addEventListener('click', () => {
+                const tag = document.getElementById('aiTagInput').value.trim();
+                const patterns = document.getElementById('aiPatternsInput').value.split(/[,|]/).map(s => s.trim()).filter(s => s);
+                const responses = document.getElementById('aiResponsesInput').value.split(/[,|]/).map(s => s.trim()).filter(s => s);
 
-            if (!tag || patterns.length === 0 || responses.length === 0) return alert('모든 필드를 올바르게 입력해주세요.');
+                if (!tag || patterns.length === 0 || responses.length === 0) return alert('모든 필드를 올바르게 입력해주세요.');
 
-            if (editingDataIndex !== null) {
-                trainingData[editingDataIndex] = { tag, patterns, responses };
+                if (editingDataIndex !== null) {
+                    trainingData[editingDataIndex] = { tag, patterns, responses };
+                } else {
+                    trainingData.push({ tag, patterns, responses });
+                }
                 editingDataIndex = null;
-            } else {
-                trainingData.push({ tag, patterns, responses });
-            }
-            renderAITab();
-        });
+                isAddingNewIntent = false;
+                renderAITab();
+            });
 
-        if (editingDataIndex !== null) {
-            document.getElementById('aiCancelEditBtn').addEventListener('click', () => {
+            document.getElementById('aiCancelEditBtn')?.addEventListener('click', () => {
                 editingDataIndex = null;
+                isAddingNewIntent = false;
                 renderAITab();
             });
         }
 
+        document.getElementById('aiAddNewIntentBtn').addEventListener('click', () => {
+            isAddingNewIntent = true;
+            editingDataIndex = null;
+            renderAITab();
+            // 폼으로 스크롤
+            setTimeout(() => {
+                const formEl = document.getElementById('ai-dataset-form');
+                if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        });
+        
         document.getElementById('aiSaveDataBtn').addEventListener('click', () => {
             localStorage.setItem('gonard-ai-dataset', JSON.stringify(trainingData));
             alert('데이터셋이 로컬에 저장되었습니다.');
@@ -309,10 +346,14 @@ const renderAITab = () => {
         document.querySelectorAll('.ai-del-data-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const idx = e.target.dataset.idx;
-                trainingData.splice(idx, 1);
-                if (editingDataIndex === parseInt(idx, 10)) editingDataIndex = null;
-                else if (editingDataIndex > parseInt(idx, 10)) editingDataIndex--;
-                renderAITab();
+                if (confirm(`'${trainingData[idx].tag}' 인텐트를 삭제하시겠습니까?`)) {
+                    trainingData.splice(idx, 1);
+                    if (editingDataIndex === parseInt(idx, 10)) {
+                        editingDataIndex = null;
+                        isAddingNewIntent = false;
+                    } else if (editingDataIndex > parseInt(idx, 10)) editingDataIndex--;
+                    renderAITab();
+                }
             });
         });
 
@@ -325,9 +366,9 @@ const renderAITab = () => {
 
     } else if (currentAITab === 'train') {
         content.innerHTML = `
-            <div id="ai-train-layout" style="display: flex; gap: 20px; height: 100%;">
+            <div id="ai-train-layout" style="height: 100%;">
                 <!-- 모델 튜닝 파라미터 -->
-                <div style="flex: 1; background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; display: flex; flex-direction: column; margin-bottom: 20px;">
+                <div id="ai-hp-form" style="background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; display: flex; flex-direction: column; margin-bottom: 20px; max-width: 600px; margin: 0 auto;">
                     <h3 style="margin-top: 0; color: #f1f5f9; font-size: 16px; margin-bottom: 20px;">하이퍼파라미터 튜닝</h3>
                     
                     <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">Epochs (반복 횟수)</label>
@@ -354,10 +395,13 @@ const renderAITab = () => {
                 </div>
 
                 <!-- 학습 로그 출력 -->
-                <div style="flex: 2; background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #334155; display: flex; flex-direction: column; font-family: 'Courier New', monospace;">
+                <div id="ai-log-view" style="display: none; height: 100%; background: #050505; padding: 15px; border-radius: 12px; border: 1px solid #334155; flex-direction: column; font-family: 'Courier New', monospace;">
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px;">
                         <span style="color: #10b981; font-size: 14px; font-weight: bold;">[TF.js Console] Training Logs</span>
-                        <button id="aiSaveModelBtn" style="background: #27ae60; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; display: none;">모델 디바이스 저장</button>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="aiBackToHpBtn" style="background: #334155; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; display: none;">다시 튜닝하기</button>
+                            <button id="aiSaveModelBtn" style="background: #27ae60; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; display: none;">모델 디바이스 저장</button>
+                        </div>
                     </div>
                     <div id="aiLogArea" style="flex: 1; overflow-y: auto; color: #d4d4d4; font-size: 13px; line-height: 1.5; padding-right: 5px;">
                         시스템 준비 완료. '모델 학습 시작' 버튼을 누르세요...
@@ -376,10 +420,12 @@ const renderAITab = () => {
             const logArea = document.getElementById('aiLogArea');
             const log = (msg) => { logArea.innerHTML += `<div>${msg}</div>`; logArea.scrollTop = logArea.scrollHeight; };
             
+            document.getElementById('ai-hp-form').style.display = 'none';
+            document.getElementById('ai-log-view').style.display = 'flex';
+
             const startTime = Date.now();
-            document.getElementById('aiStartTrainBtn').disabled = true;
-            document.getElementById('aiStartTrainBtn').style.opacity = '0.5';
             document.getElementById('aiSaveModelBtn').style.display = 'none';
+            document.getElementById('aiBackToHpBtn').style.display = 'none';
             logArea.innerHTML = '';
 
             try {
@@ -442,9 +488,13 @@ const renderAITab = () => {
                 console.error(error);
                 log(`<span style="color: #ef4444;">[오류]</span> 학습 중 문제가 발생했습니다: ${error.message}`);
             } finally {
-                document.getElementById('aiStartTrainBtn').disabled = false;
-                document.getElementById('aiStartTrainBtn').style.opacity = '1';
+                document.getElementById('aiBackToHpBtn').style.display = 'block';
             }
+        });
+
+        document.getElementById('aiBackToHpBtn').addEventListener('click', () => {
+            document.getElementById('ai-log-view').style.display = 'none';
+            document.getElementById('ai-hp-form').style.display = 'flex';
         });
 
         document.getElementById('aiSaveModelBtn').addEventListener('click', async () => {
@@ -458,7 +508,7 @@ const renderAITab = () => {
 
     } else if (currentAITab === 'test') {
         content.innerHTML = `
-            <div style="display: flex; flex-direction: column; height: 100%; max-width: 600px; margin: 0 auto; background: #1e293b; border-radius: 16px; border: 1px solid #334155; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div style="display: flex; flex-direction: column; height: calc(100% + 40px); margin: -20px; background: #1e293b; overflow: hidden;">
                 <!-- 채팅 헤더 -->
                 <div style="background: #0f172a; padding: 15px 20px; border-bottom: 1px solid #334155; display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -490,10 +540,10 @@ const renderAITab = () => {
                 </div>
 
                 <!-- 입력창 -->
-                <div style="padding: 15px; background: #0f172a; border-top: 1px solid #334155; display: flex; gap: 10px;">
-                    <input type="text" id="aiChatInput" placeholder="비서에게 메시지 전송..." ${!aiModel ? 'disabled' : ''} style="flex: 1; padding: 12px 15px; background: #1e293b; border: 1px solid #334155; border-radius: 24px; color: white; outline: none; font-size: 14px; transition: 0.2s;">
-                    <button id="aiChatSendBtn" ${!aiModel ? 'disabled' : ''} style="width: 45px; height: 45px; background: #38bdf8; color: #0f172a; border: none; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: ${!aiModel ? 'not-allowed' : 'pointer'}; opacity: ${!aiModel ? '0.5' : '1'};">
-                        <span class="material-symbols-outlined" style="margin-left: 2px;">send</span>
+                <div style="padding: 10px 15px; background: #0f172a; border-top: 1px solid #334155; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">
+                    <textarea id="aiChatInput" rows="1" oninput="autoResizeTextarea(this)" placeholder="비서에게 메시지 전송..." ${!aiModel ? 'disabled' : ''} style="flex: 1; padding: 10px 15px; background: #1e293b; border: 1px solid #334155; border-radius: 20px; color: white; outline: none; font-size: 14px; resize: none; min-height: 40px; height: 40px; max-height: 120px; line-height: 1.4; font-family: inherit; margin: 0; overflow-y: auto;"></textarea>
+                    <button id="aiChatSendBtn" ${!aiModel ? 'disabled' : ''} style="width: 40px; height: 40px; background: #38bdf8; color: #0f172a; border: none; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: ${!aiModel ? 'not-allowed' : 'pointer'}; opacity: ${!aiModel ? '0.5' : '1'}; flex-shrink: 0;">
+                        <span class="material-symbols-outlined" style="font-size: 20px; margin-left: 2px;">send</span>
                     </button>
                 </div>
             </div>
@@ -542,6 +592,7 @@ const renderAITab = () => {
 
             appendMessage(text, true);
             chatInput.value = '';
+            chatInput.style.height = '40px';
 
             // 사용중 피드백 표시
             const typingDiv = document.createElement('div');
@@ -588,7 +639,7 @@ const renderAITab = () => {
         };
 
         if (chatSendBtn) chatSendBtn.addEventListener('click', handleChat);
-        if (chatInput) chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleChat(); });
+        if (chatInput) chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChat(); } });
     } else if (currentAITab === 'version') {
         const renderStatCard = (label, value, icon, color) => `
             <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 15px; display: flex; align-items: center; gap: 15px;">
@@ -736,4 +787,15 @@ const renderAITab = () => {
             </div>
         `;
     }
-}
+};
+
+export const onReclick = () => {
+    if (!subTabButtons) return;
+    
+    const now = Date.now();
+    if (now - lastReclickTime < 300) return; 
+    lastReclickTime = now;
+
+    currentTabIndex = (currentTabIndex + 1) % tabIds.length;
+    subTabButtons[currentTabIndex].click();
+};

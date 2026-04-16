@@ -83,7 +83,7 @@ export const init = (container) => {
         </div>
 
         <!-- 나드 작성/수정 전체화면 뷰 (Google Keep 스타일) -->
-        <div id="nardEditView" style="display: none; flex-direction: column; min-height: calc(100vh - 180px); background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <div id="nardEditView" style="display: none; flex-direction: column; height: calc(100vh - 121px); background: white; margin: -14px -15px -20px -15px;">
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border-bottom: 1px solid #eee;">
                 <button id="cancelNardBtn" style="background: none; border: none; color: #7f8c8d; cursor: pointer; display: flex; align-items: center; padding: 5px;"><span class="material-symbols-outlined">arrow_back</span></button>
                 <span id="nardEditTitle" style="font-size: 14px; font-weight: bold; color: #2c3e50;">새 나드</span>

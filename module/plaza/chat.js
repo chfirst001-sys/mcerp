@@ -134,7 +134,7 @@ const openChatRoom = (container, targetUid, targetName) => {
     const chatId = [myUid, targetUid].sort().join('_');
 
     container.innerHTML = `
-        <div style="display: flex; flex-direction: column; height: calc(100vh - 200px); background: white; border-radius: 8px; border: 1px solid #eee; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+        <div style="display: flex; flex-direction: column; height: calc(100vh - 165px); background: white; margin: -20px -15px -20px -15px; overflow: hidden;">
             <!-- 헤더 -->
             <div style="background: #2c3e50; color: white; padding: 12px 15px; display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
                 <button id="backToChatListBtn" style="background: none; border: none; color: white; cursor: pointer; padding: 0; display: flex; align-items: center;">

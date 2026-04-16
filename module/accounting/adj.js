@@ -14,7 +14,7 @@ export const render = async (container) => {
     }
 
     container.innerHTML = `
-        <div class="module-card">
+        <div>
             <div style="display:flex; gap:15px; margin-bottom:15px; border-bottom:2px solid #eee; padding-bottom:10px; overflow-x: auto; white-space: nowrap;">
                 <button class="adj-sub-btn" data-group="current_bill" style="background:none; border:none; padding:0; color:#2980b9; font-weight:bold; cursor:pointer; font-size:14px;">당월부과</button>
                 <button class="adj-sub-btn" data-group="past_records" style="background:none; border:none; padding:0; color:#7f8c8d; cursor:pointer; font-size:14px;">부과기록</button>

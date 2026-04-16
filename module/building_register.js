@@ -14,7 +14,7 @@ export const init = (container) => {
             <div id="step7-indicator" style="flex: 0 0 auto; color: #95a5a6;">7.주기납부</div>
         </div>
 
-        <form id="buildingRegisterForm" class="module-card">
+        <form id="buildingRegisterForm">
             <!-- 1단계: 건물 기본 정보 -->
             <div id="step1-content">
                 <h3 style="margin-top: 0;">1단계: 건물 기본 정보</h3>

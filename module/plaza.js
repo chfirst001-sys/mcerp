@@ -55,7 +55,7 @@ const loadSubModule = async (tabId) => {
     content.innerHTML = '<div style="text-align: center; padding: 20px; color: #7f8c8d;">모듈을 불러오는 중...</div>';
     
     try {
-        const APP_VERSION = "20260415_02"; // 캐시 무효화용 버전
+        const APP_VERSION = "20260415_03"; // 캐시 무효화용 버전
         const module = await import(`./plaza/${tabId}.js?v=${APP_VERSION}`);
         currentSubModule = module;
         module.render(content);
@@ -68,7 +68,7 @@ const loadSubModule = async (tabId) => {
             case 'news': title='NEWS'; desc='새로운 소식 기능을 준비 중입니다.'; break;
             default: title=tabId; desc='준비 중입니다.';
         }
-        content.innerHTML = `<div class="module-card" style="text-align:center; padding:40px 20px;"><h3>${title}</h3><p style="color:#7f8c8d;">${desc}</p></div>`;
+        content.innerHTML = `<div style="text-align:center; padding:40px 20px;"><h3>${title}</h3><p style="color:#7f8c8d;">${desc}</p></div>`;
     }
 };
 

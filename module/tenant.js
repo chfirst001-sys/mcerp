@@ -31,9 +31,7 @@ export const init = (container) => {
         </div>
 
         <!-- 하위 메뉴별 컨텐츠 영역 -->
-        <div class="module-card">
-            <div id="tenantContent"></div>
-        </div>
+        <div id="tenantContent"></div>
 
         <!-- 세대 상세정보 모달 -->
         <div id="householdModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 4000; justify-content: center; align-items: center;">

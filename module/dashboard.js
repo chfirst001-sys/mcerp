@@ -256,8 +256,8 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
             const avg3 = count3 > 0 ? Math.round(sum3 / count3) : 0;
             const avg3Str = avg3 > 0 ? `${avg3.toLocaleString()} 원` : '데이터 부족';
 
-            billingSection.innerHTML = `
-                <div style="background: #fff; border-radius: 8px; padding: 15px; margin-bottom: 20px; border: 1px solid #eee; box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='#fff'" onclick="document.querySelector('.tab-item[data-module=\\'accounting\\']').click();">
+            billingSection.innerHTML = `<div style="margin-bottom: 20px; cursor: pointer;" onclick="document.querySelector('.tab-item[data-module=\\'accounting\\']').click();">
+                <div style="background: #fff; border-radius: 8px; padding: 15px; border: 1px solid #eee; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: background 0.2s;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='#fff'">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h4 style="margin: 0; color: #2c3e50; font-size: 14px; display: flex; align-items: center; gap: 6px;">
                             <span class="material-symbols-outlined" style="font-size: 18px; color: #2980b9;">receipt_long</span> 
@@ -308,6 +308,7 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
                         </div>
                     </div>
                 </div>
+            </div>
             `;
 
             document.getElementById('dashBillingMonth').addEventListener('change', (e) => {

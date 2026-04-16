@@ -794,7 +794,7 @@ export const init = (container) => {
                             <button id="equipmentMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
                         </div>
                     </div>
-                    <div id="equipmentContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
+                    <div id="equipmentContent" style="min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
                     </div>
                 `;
                 break;
@@ -820,7 +820,7 @@ export const init = (container) => {
                             <button id="fixtureMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
                         </div>
                     </div>
-                    <div id="fixtureContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
+                    <div id="fixtureContent" style="min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
                     </div>
                 `;
                 break;
@@ -846,7 +846,7 @@ export const init = (container) => {
                             <button id="zoneMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
                         </div>
                     </div>
-                    <div id="zoneContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
+                    <div id="zoneContent" style="min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
                     </div>
                 `;
                 break;
@@ -872,7 +872,7 @@ export const init = (container) => {
                             <button id="infoMoveCancelBtn" style="background: #c0392b; padding: 4px 8px; font-size: 12px; border: none; color: white; border-radius: 4px; cursor: pointer;">취소</button>
                         </div>
                     </div>
-                    <div id="infoContent" style="padding: 10px; border: 1px dashed #ccc; border-radius: 8px; background: #fafafa; min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
+                    <div id="infoContent" style="min-height: 150px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;" oncontextmenu="return false;">
                     </div>
                 `;
                 break;

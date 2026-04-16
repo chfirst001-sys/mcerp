@@ -34,7 +34,7 @@ export const init = async (container) => {
         </div>
 
         <!-- 계정 등록 폼 -->
-        <div id="addMemberFormContainer" class="module-card">
+        <div id="addMemberFormContainer">
             <h3 style="margin-top: 0;">새 계정 등록</h3>
             <form id="addMemberForm">
                 <select id="memberRole" style="margin-bottom: 10px; padding: 10px; width: 100%; max-width: 300px; border: 1px solid #ccc; border-radius: 4px;">
@@ -58,7 +58,7 @@ export const init = async (container) => {
         </div>
 
         <!-- 계정 목록 -->
-        <div class="module-card">
+        <div>
             <h3 id="listTitle" style="margin-top: 0;">MC 본사 계정 목록</h3>
             <ul id="memberList" style="list-style-type: none; padding: 0;">
                 <li style="padding: 10px; border-bottom: 1px solid #eee;">데이터를 불러오는 중...</li>
