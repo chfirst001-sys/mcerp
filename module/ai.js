@@ -1,4 +1,4 @@
-import { doc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { doc, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, escapeHtml } from "../js/main.js";
 
 let tfLoaded = false;
@@ -11,8 +11,11 @@ let lastReclickTime = 0;
 let aiModel = null;
 let aiVocab = [];
 let aiClasses = [];
-let editingDataIndex = null;
-let isAddingNewIntent = false;
+let aiDataset = [];
+let collapsedStates = {};
+let selectedFolderId = null;
+let editingItemId = null;
+let isAddingNew = null; // { type: 'folder' | 'intent' }
 let modelStats = {
     isTrained: false,
     lastTrainTime: null,
@@ -38,12 +41,15 @@ const bufferToBase64 = (buffer) => {
 };
 
 // 기본 제공되는 비서용 데이터셋 (나드(GoNard) 환경에 맞춤)
-let trainingData = [
+const defaultTrainingData = [
     { tag: "greeting", patterns: ["안녕", "반가워", "누구야", "너는 누구니", "인사해줘"], responses: ["안녕하세요! GoNard의 AI 비서입니다.", "반갑습니다! 무엇을 도와드릴까요?"] },
     { tag: "goodbye", patterns: ["잘가", "나중에 봐", "종료해", "수고했어", "안녕히 계세요"], responses: ["이용해 주셔서 감사합니다. 좋은 하루 보내세요!", "필요하시면 언제든 다시 불러주세요."] },
     { tag: "search_nard", patterns: ["나드 검색해줘", "메모 찾아줘", "기록 검색", "문서 찾아"], responses: ["어떤 키워드로 나드를 검색해 드릴까요?", "통합 검색창을 띄워드릴 수 있습니다. 검색어를 말씀해주세요."] },
     { tag: "schedule", patterns: ["오늘 일정", "스케줄 확인해", "마감일 언제야", "뭐 해야해"], responses: ["오늘 예정된 일정을 스케줄 탭에서 확인하시겠어요?", "다가오는 마감일이 있는 나드를 확인해 드릴게요."] },
-    { tag: "create_memo", patterns: ["메모 작성해", "새 나드 만들어", "기록해줘", "받아적어"], responses: ["새로운 나드 작성 창을 열어드릴게요.", "어떤 내용을 기록할까요? 말씀해주세요."] }
+    { tag: "create_memo", patterns: ["메모 작성해", "새 나드 만들어", "기록해줘", "받아적어"], responses: ["새로운 나드 작성 창을 열어드릴게요.", "어떤 내용을 기록할까요? 말씀해주세요."] },
+    { tag: "time_check", patterns: ["지금 몇 시야", "현재 시간", "시간 알려줘"], responses: ["현재 시간은 {{TIME}}입니다.", "지금은 {{TIME}}이에요."]},
+    { tag: "date_check", patterns: ["오늘 며칠이야", "오늘 날짜", "날짜 알려줘", "무슨 요일이야"], responses: ["오늘은 {{DATE}}입니다.", "{{DATE}}이에요."]},
+    { tag: "fallback", patterns: ["ㅋㅋ", "ㅎㅎ", "아니", "음", "어", "그게", "테스트", "몰라", "아무거나", "ㅇㅇ", "뭐지"], responses: ["무슨 말씀이신지 잘 이해하지 못했어요. 다르게 표현해 주실 수 있나요?", "제가 아직 배우지 않은 내용이네요. 좀 더 구체적으로 말씀해주시면 감사하겠습니다!"] }
 ];
 
 // 의존성 라이브러리(TensorFlow.js) 동적 로드
@@ -74,13 +80,14 @@ const preprocessData = () => {
     let words = [];
     let classes = [];
     let documents = [];
-
-    trainingData.forEach(intent => {
-        if (!classes.includes(intent.tag)) classes.push(intent.tag);
+    
+    const intents = aiDataset.filter(item => item.type === 'intent');
+    intents.forEach(intent => {
+        if (!classes.includes(intent.name)) classes.push(intent.name);
         intent.patterns.forEach(pattern => {
             const w = tokenize(pattern);
             words.push(...w);
-            documents.push({ words: w, tag: intent.tag });
+            documents.push({ words: w, tag: intent.name });
         });
     });
 
@@ -160,10 +167,35 @@ export const init = async (container) => {
         tfStatus.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px; color: #10b981;">check_circle</span> TF.js Ready';
         tfStatus.style.background = '#064e3b';
         tfStatus.style.color = '#34d399';
-        
-        // 저장된 데이터셋이 있다면 불러오기
+
         const savedData = localStorage.getItem('gonard-ai-dataset');
-        if (savedData) trainingData = JSON.parse(savedData);
+        if (savedData) {
+            const parsedData = JSON.parse(savedData);
+            // 구버전(평탄한 배열) 데이터를 신규 트리 구조로 마이그레이션
+            if (Array.isArray(parsedData) && parsedData.length > 0 && parsedData[0].tag && !parsedData[0].type) {
+                aiDataset = [{ id: 'folder_root', parentId: null, type: 'folder', name: '기본 분류' }];
+                parsedData.forEach((intent, index) => {
+                    aiDataset.push({
+                        id: `intent_${Date.now()}_${index}`,
+                        parentId: 'folder_root',
+                        type: 'intent',
+                        name: intent.tag,
+                        patterns: intent.patterns,
+                        responses: intent.responses
+                    });
+                });
+                localStorage.setItem('gonard-ai-dataset', JSON.stringify(aiDataset));
+            } else {
+                aiDataset = parsedData;
+            }
+        } else {
+            // 최초 실행 시 기본 데이터셋을 트리 구조로 초기화
+            aiDataset = [{ id: 'folder_root', parentId: null, type: 'folder', name: '기본 분류' }];
+            defaultTrainingData.forEach((intent, index) => {
+                const newIntent = { id: `intent_${Date.now()}_${index}`, parentId: 'folder_root', type: 'intent', name: intent.tag, patterns: intent.patterns, responses: intent.responses };
+                aiDataset.push(newIntent);
+            });
+        }
     } else {
         tfStatus.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px; color: #ef4444;">error</span> TF.js Load Failed';
         tfStatus.style.background = '#7f1d1d';
@@ -192,179 +224,29 @@ const renderAITab = () => {
     const content = document.getElementById('aiTabContent');
     if (!content) return;
 
-    if (currentAITab === 'dataset') {
-        // 탭을 전환할 때마다 '새 인텐트 추가' 상태 초기화
-        if (!content.querySelector('#ai-dataset-layout')) isAddingNewIntent = false;
-
-        let listHtml = trainingData.map((d, i) => `
-            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-bottom: 10px;">
-                    <span style="font-weight: bold; color: #38bdf8;">Tag: ${escapeHtml(d.tag)}</span>
-                    <div style="display: flex; gap: 5px;">
-                        <button class="ai-edit-data-btn" data-idx="${i}" style="background: transparent; color: #38bdf8; border: 1px solid #38bdf8; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">수정</button>
-                        <button class="ai-del-data-btn" data-idx="${i}" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">삭제</button>
-                    </div>
-                </div>
-                <div style="font-size: 13px; color: #cbd5e1; margin-bottom: 5px;"><strong>입력 패턴:</strong> ${escapeHtml(d.patterns.join(', '))}</div>
-                <div style="font-size: 13px; color: #94a3b8;"><strong>응답 출력:</strong> ${escapeHtml(d.responses.join(' | '))}</div>
-            </div>
-        `).join('');
-
-        const showForm = isAddingNewIntent || editingDataIndex !== null;
-        const itemToEdit = editingDataIndex !== null ? trainingData[editingDataIndex] : null;
-
+    if (currentAITab === 'dataset') { // ------------------- 데이터셋 탭 -------------------
         content.innerHTML = `
-            <div id="ai-dataset-layout">
-                <!-- 데이터 입력 폼 -->
-                <div id="ai-dataset-form" style="display: ${showForm ? 'block' : 'none'}; background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px;">
-                    <h3 style="margin-top: 0; color: #f1f5f9; font-size: 16px; margin-bottom: 15px;">
-                        ${editingDataIndex !== null ? '인텐트 수정' : '새 인텐트 추가'}
-                    </h3>
-                    
-                    <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">Tag (영문 고유명칭)</label>
-                    <input type="text" id="aiTagInput" placeholder="예: weather_check" value="${itemToEdit ? escapeHtml(itemToEdit.tag) : ''}" style="width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: white; margin-bottom: 15px; box-sizing: border-box;">
-                    
-                    <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">입력 패턴 (쉼표로 구분)</label>
-                    <textarea id="aiPatternsInput" rows="3" placeholder="예: 날씨 어때, 오늘 비와?, 밖이 춥니" style="width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: white; margin-bottom: 15px; box-sizing: border-box; resize: none;">${itemToEdit ? escapeHtml(itemToEdit.patterns.join(', ')) : ''}</textarea>
-                    
-                    <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">AI 응답 (쉼표 혹은 파이프(|)로 구분)</label>
-                    <textarea id="aiResponsesInput" rows="3" placeholder="예: 오늘 날씨는 맑습니다. | 현재 기온을 확인해드릴게요." style="width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: white; margin-bottom: 15px; box-sizing: border-box; resize: none;">${itemToEdit ? escapeHtml(itemToEdit.responses.join(', ')) : ''}</textarea>
-                    
-                    <div style="display: flex; gap: 10px;">
-                        <button id="aiAddDataBtn" style="flex: 1; background: ${editingDataIndex !== null ? '#f59e0b' : '#10b981'}; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s;">
-                            ${editingDataIndex !== null ? '데이터셋 수정' : '목록에 추가'}
-                        </button>
-                        ${showForm ? `<button id="aiCancelEditBtn" style="background: #64748b; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer;">취소</button>` : ''}
-                    </div>
+            <div id="ai-dataset-controls" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 10px;">
+                <div style="position: relative; flex: 1;">
+                    <input type="search" id="aiDatasetSearchInput" placeholder="데이터셋 검색 (Tag, 패턴, 응답)..." style="width: 100%; padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: white; box-sizing: border-box;">
+                    <span class="material-symbols-outlined" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #64748b;">search</span>
                 </div>
-
-                <!-- 데이터셋 목록 -->
-                <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <h3 style="margin: 0; color: #f1f5f9; font-size: 16px;">학습 데이터셋 목록 (${trainingData.length}개)</h3>
-                        <div style="display: flex; gap: 5px; align-items: center;">
-                            <button id="aiAddNewIntentBtn" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold;">새 인텐트</button>
-                            <button id="aiImportDataBtn" title="가져오기" style="background: #10b981; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center;"><span class="material-symbols-outlined" style="font-size: 18px;">file_upload</span></button>
-                            <button id="aiExportDataBtn" title="내보내기" style="background: #8b5cf6; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center;"><span class="material-symbols-outlined" style="font-size: 18px;">file_download</span></button>
-                            <button id="aiSaveDataBtn" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">로컬에 저장</button>
-                            <input type="file" id="aiImportFileInput" accept=".json" style="display: none;">
-                        </div>
-                    </div>
-                    <div id="aiDatasetList">${listHtml}</div>
+                <div style="display: flex; gap: 5px; align-items: center;">
+                    <button id="aiAddNewFolderBtn" style="background: #f59e0b; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size:16px;">create_new_folder</span> 새 폴더</button>
+                    <button id="aiAddNewIntentBtn" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size:16px;">add</span> 새 인텐트</button>
+                    <div style="width: 1px; height: 20px; background: #334155;"></div>
+                    <button id="aiUpdateBtn" title="서버에서 업데이트" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 18px;">cloud_download</span> 업데이트</button>
+                    <button id="aiUploadBtn" title="서버로 업로드" style="background: #8b5cf6; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 18px;">cloud_upload</span> 업로드</button>
+                    <button id="aiSaveDataBtn" title="로컬에 저장" style="background: #3b82f6; color: white; border: none; padding: 6px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center;"><span class="material-symbols-outlined" style="font-size: 18px;">save</span></button>
                 </div>
             </div>
+            <div id="ai-dataset-form-container"></div>
+            <div id="ai-dataset-list-container" style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 15px; min-height: 300px;"></div>
         `;
+        renderDatasetView();
+        attachDatasetControlEvents();
 
-        if (showForm) {
-            document.getElementById('aiAddDataBtn').addEventListener('click', () => {
-                const tag = document.getElementById('aiTagInput').value.trim();
-                const patterns = document.getElementById('aiPatternsInput').value.split(/[,|]/).map(s => s.trim()).filter(s => s);
-                const responses = document.getElementById('aiResponsesInput').value.split(/[,|]/).map(s => s.trim()).filter(s => s);
-
-                if (!tag || patterns.length === 0 || responses.length === 0) return alert('모든 필드를 올바르게 입력해주세요.');
-
-                if (editingDataIndex !== null) {
-                    trainingData[editingDataIndex] = { tag, patterns, responses };
-                } else {
-                    trainingData.push({ tag, patterns, responses });
-                }
-                editingDataIndex = null;
-                isAddingNewIntent = false;
-                renderAITab();
-            });
-
-            document.getElementById('aiCancelEditBtn')?.addEventListener('click', () => {
-                editingDataIndex = null;
-                isAddingNewIntent = false;
-                renderAITab();
-            });
-        }
-
-        document.getElementById('aiAddNewIntentBtn').addEventListener('click', () => {
-            isAddingNewIntent = true;
-            editingDataIndex = null;
-            renderAITab();
-            // 폼으로 스크롤
-            setTimeout(() => {
-                const formEl = document.getElementById('ai-dataset-form');
-                if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
-        });
-        
-        document.getElementById('aiSaveDataBtn').addEventListener('click', () => {
-            localStorage.setItem('gonard-ai-dataset', JSON.stringify(trainingData));
-            alert('데이터셋이 로컬에 저장되었습니다.');
-        });
-
-        document.getElementById('aiExportDataBtn').addEventListener('click', () => {
-            const dataStr = JSON.stringify(trainingData, null, 2);
-            const blob = new Blob([dataStr], {type: "application/json"});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-            a.download = `gonard_ai_dataset_${timestamp}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        });
-
-        const importBtn = document.getElementById('aiImportDataBtn');
-        const importFileInput = document.getElementById('aiImportFileInput');
-
-        importBtn.addEventListener('click', () => {
-            importFileInput.click();
-        });
-
-        importFileInput.addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            if (confirm('현재 데이터셋을 덮어쓰고 새 파일을 가져오시겠습니까?')) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const importedData = JSON.parse(e.target.result);
-                        if (Array.isArray(importedData) && importedData.every(item => item.tag && item.patterns && item.responses)) {
-                            trainingData = importedData;
-                            localStorage.setItem('gonard-ai-dataset', JSON.stringify(trainingData));
-                            alert('데이터셋을 성공적으로 가져왔습니다.');
-                            renderAITab();
-                        } else {
-                            alert('올바르지 않은 데이터셋 파일 형식입니다.');
-                        }
-                    } catch (err) {
-                        alert('파일을 읽는 중 오류가 발생했습니다: ' + err.message);
-                    }
-                };
-                reader.readAsText(file);
-            }
-            event.target.value = '';
-        });
-
-        document.querySelectorAll('.ai-del-data-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const idx = e.target.dataset.idx;
-                if (confirm(`'${trainingData[idx].tag}' 인텐트를 삭제하시겠습니까?`)) {
-                    trainingData.splice(idx, 1);
-                    if (editingDataIndex === parseInt(idx, 10)) {
-                        editingDataIndex = null;
-                        isAddingNewIntent = false;
-                    } else if (editingDataIndex > parseInt(idx, 10)) editingDataIndex--;
-                    renderAITab();
-                }
-            });
-        });
-
-        document.querySelectorAll('.ai-edit-data-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                editingDataIndex = parseInt(e.currentTarget.dataset.idx, 10);
-                renderAITab();
-            });
-        });
-
-    } else if (currentAITab === 'train') {
+    } else if (currentAITab === 'train') { // ------------------- 학습/튜닝 탭 -------------------
         content.innerHTML = `
             <div id="ai-train-layout" style="height: 100%;">
                 <!-- 모델 튜닝 파라미터 -->
@@ -500,13 +382,18 @@ const renderAITab = () => {
         document.getElementById('aiSaveModelBtn').addEventListener('click', async () => {
             if (!aiModel) return;
             try {
-                await aiModel.save('indexeddb://gonard-ai-model');
-                localStorage.setItem('gonard-ai-metadata', JSON.stringify({ vocab: aiVocab, classes: aiClasses }));
+                await aiModel.save('indexeddb://user-ai-model');
+                localStorage.setItem('user_ai_meta', JSON.stringify({ 
+                    vocab: aiVocab, 
+                    classes: aiClasses, 
+                    trainingData: aiDataset 
+                }));
+                localStorage.setItem('user_ai_version', Date.now().toString());
                 alert('모델이 브라우저 로컬 저장소에 저장되었습니다.');
             } catch(e) { alert('저장 실패: ' + e.message); }
         });
 
-    } else if (currentAITab === 'test') {
+    } else if (currentAITab === 'test') { // ------------------- 봇 테스트 탭 -------------------
         content.innerHTML = `
             <div style="display: flex; flex-direction: column; height: calc(100% + 40px); margin: -20px; background: #1e293b; overflow: hidden;">
                 <!-- 채팅 헤더 -->
@@ -554,9 +441,15 @@ const renderAITab = () => {
             try {
                 const btn = document.getElementById('aiLoadModelBtn');
                 btn.textContent = '로딩중...';
-                aiModel = await window.tf.loadLayersModel('indexeddb://gonard-ai-model');
-                const meta = JSON.parse(localStorage.getItem('gonard-ai-metadata'));
-                if (meta) { aiVocab = meta.vocab; aiClasses = meta.classes; }
+                aiModel = await window.tf.loadLayersModel('indexeddb://user-ai-model');
+                const meta = JSON.parse(localStorage.getItem('user_ai_meta'));
+                if (meta) { 
+                    aiVocab = meta.vocab; 
+                    aiClasses = meta.classes;
+                    if (meta.trainingData) {
+                        aiDataset = meta.trainingData;
+                    }
+                }
                 alert('저장된 모델을 성공적으로 불러왔습니다!');
                 renderAITab(); // UI 새로고침
             } catch (e) {
@@ -603,36 +496,53 @@ const renderAITab = () => {
             chatWindow.appendChild(typingDiv);
             chatWindow.scrollTop = chatWindow.scrollHeight;
 
-            setTimeout(() => {
+            setTimeout(async () => {
                 chatWindow.removeChild(typingDiv);
 
-                // 1. 입력 토큰화 및 BoW 생성
                 const words = tokenize(text);
                 const bag = aiVocab.map(w => words.includes(w) ? 1 : 0);
                 const inputTensor = window.tf.tensor2d([bag]);
 
-                // 2. 모델 예측
                 const prediction = aiModel.predict(inputTensor);
                 const scores = prediction.dataSync();
                 const maxScore = Math.max(...scores);
                 const intentIdx = scores.indexOf(maxScore);
+                
+                let aiResponse = "무슨 말씀이신지 잘 이해하지 못했어요. 다르게 표현해 주실 수 있나요?";
 
-                // 3. 임계값(Threshold) 확인 및 응답
                 if (maxScore > 0.4) {
                     const predictedTag = aiClasses[intentIdx];
-                    const intentData = trainingData.find(i => i.tag === predictedTag);
-                    if (intentData) {
-                        const responses = intentData.responses;
-                        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-                        appendMessage(randomResponse, false);
+                    
+                    const responsesMap = {};
+                    aiDataset.filter(i => i.type === 'intent').forEach(intent => { responsesMap[intent.name] = intent.responses; });
+                    const responses = responsesMap[predictedTag];
+
+                    // --- 메타데이터 및 액션 처리 ---
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                    const dateString = now.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+
+                    if (predictedTag === 'time_check') {
+                        const baseResponse = (responses && responses.length > 0) ? responses[Math.floor(Math.random() * responses.length)] : "현재 시간은 {{TIME}}입니다.";
+                        aiResponse = baseResponse.replace('{{TIME}}', timeString);
+                    } else if (predictedTag === 'date_check') {
+                        const baseResponse = (responses && responses.length > 0) ? responses[Math.floor(Math.random() * responses.length)] : "오늘은 {{DATE}}입니다.";
+                        aiResponse = baseResponse.replace('{{DATE}}', dateString);
+                    } else if (predictedTag === 'create_memo') {
+                        aiResponse = responses && responses.length > 0 ? responses[Math.floor(Math.random() * responses.length)] : "새 나드 작성창을 열어드릴게요.";
+                        document.dispatchEvent(new CustomEvent('openNardModal'));
+                    } else if (predictedTag === 'search_nard') {
+                        aiResponse = responses && responses.length > 0 ? responses[Math.floor(Math.random() * responses.length)] : "통합 검색창을 열어드릴게요.";
+                        document.getElementById('globalSearchBtn')?.click();
+                    } else if (responses && responses.length > 0) {
+                        aiResponse = responses[Math.floor(Math.random() * responses.length)];
                     } else {
-                        appendMessage("응답 데이터를 찾을 수 없습니다.", false);
+                        aiResponse = `[의도 파악됨: ${predictedTag}] 하지만 정의된 답변이 없습니다.`;
                     }
-                } else {
-                    appendMessage("무슨 말씀이신지 잘 이해하지 못했어요. 다르게 표현해 주실 수 있나요?", false);
                 }
                 
-                // 메모리 누수 방지
+                appendMessage(aiResponse, false);
+
                 inputTensor.dispose();
                 prediction.dispose();
             }, 600); // 봇의 답변 지연(UX)
@@ -640,7 +550,7 @@ const renderAITab = () => {
 
         if (chatSendBtn) chatSendBtn.addEventListener('click', handleChat);
         if (chatInput) chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChat(); } });
-    } else if (currentAITab === 'version') {
+    } else if (currentAITab === 'version') { // ------------------- 모델버전 탭 -------------------
         const renderStatCard = (label, value, icon, color) => `
             <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 15px; display: flex; align-items: center; gap: 15px;">
                 <div style="width: 40px; height: 40px; border-radius: 50%; background: ${color}20; color: ${color}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -723,8 +633,8 @@ const renderAITab = () => {
                 
                 // 모델 데이터를 통째로 Firestore 문서 하나에 압축 저장
                 await setDoc(doc(db, "system", "ai_model"), {
-                    version: Date.now(), vocab: aiVocab, classes: aiClasses, 
-                    trainingData: trainingData,
+                    version: Date.now(), vocab: aiVocab, classes: aiClasses,
+                    trainingData: aiDataset, // 변경된 데이터 구조 전송
                     topology: JSON.stringify(artifacts.modelTopology), weightSpecs: JSON.stringify(artifacts.weightSpecs),
                     weightData: weightBase64
                 });
@@ -735,7 +645,7 @@ const renderAITab = () => {
                 btn.textContent = '🚀 현재 모델을 전역 서버로 공식 배포하기'; btn.disabled = false;
             }
         });
-    } else if (currentAITab === 'guide') {
+    } else if (currentAITab === 'guide') { // ------------------- 사용설명서 탭 -------------------
         content.innerHTML = `
             <div style="max-width: 800px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 12px; border: 1px solid #334155; color: #f1f5f9; line-height: 1.6;">
                 <h2 style="color: #38bdf8; margin-top: 0; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-bottom: 20px;">📖 AI 비서 학습 스튜디오 사용 설명서</h2>
@@ -787,6 +697,318 @@ const renderAITab = () => {
             </div>
         `;
     }
+};
+
+const renderDatasetForm = () => {
+    const container = document.getElementById('ai-dataset-form-container');
+    if (!container) return;
+
+    const showForm = isAddingNew || editingItemId !== null;
+    if (!showForm) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const itemToEdit = editingItemId ? aiDataset.find(i => i.id === editingItemId) : null;
+
+    container.innerHTML = `
+        <div id="ai-dataset-form" style="background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px;">
+            <h3 style="margin-top: 0; color: #f1f5f9; font-size: 16px; margin-bottom: 15px;">
+                ${editingItemId !== null ? '인텐트 수정' : '새 인텐트 추가'}
+            </h3>
+            
+            <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">Tag (영문 고유명칭)</label>
+            <input type="text" id="aiTagInput" placeholder="예: weather_check" value="${itemToEdit ? escapeHtml(itemToEdit.name) : ''}" style="width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: white; margin-bottom: 15px; box-sizing: border-box;">
+            
+            <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">입력 패턴 (쉼표로 구분)</label>
+            <textarea id="aiPatternsInput" rows="3" placeholder="예: 날씨 어때, 오늘 비와?, 밖이 춥니" style="width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: white; margin-bottom: 15px; box-sizing: border-box; resize: none;">${itemToEdit ? escapeHtml(itemToEdit.patterns.join(', ')) : ''}</textarea>
+            
+            <label style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px;">AI 응답 (쉼표 혹은 파이프(|)로 구분)</label>
+            <textarea id="aiResponsesInput" rows="3" placeholder="예: 오늘 날씨는 맑습니다. | 현재 기온을 확인해드릴게요." style="width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: white; margin-bottom: 15px; box-sizing: border-box; resize: none;">${itemToEdit ? escapeHtml(itemToEdit.responses.join(', ')) : ''}</textarea>
+            
+            <div style="display: flex; gap: 10px;">
+                <button id="aiSaveFormBtn" style="flex: 1; background: ${editingItemId !== null ? '#f59e0b' : '#10b981'}; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s;">
+                    ${editingItemId !== null ? '데이터셋 수정' : '목록에 추가'}
+                </button>
+                <button id="aiCancelFormBtn" style="background: #64748b; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer;">취소</button>
+            </div>
+        </div>
+    `;
+
+    attachFormEvents();
+};
+
+const attachFormEvents = () => {
+    document.getElementById('aiSaveFormBtn')?.addEventListener('click', () => {
+        const tag = document.getElementById('aiTagInput').value.trim();
+        const patterns = document.getElementById('aiPatternsInput').value.split(/[,|]/).map(s => s.trim()).filter(s => s);
+        const responses = document.getElementById('aiResponsesInput').value.split(/[,|]/).map(s => s.trim()).filter(s => s);
+
+        if (!tag || patterns.length === 0 || responses.length === 0) return alert('모든 필드를 올바르게 입력해주세요.');
+
+        if (editingItemId) {
+            const item = aiDataset.find(i => i.id === editingItemId);
+            if (item) { item.name = tag; item.patterns = patterns; item.responses = responses; }
+        } else if (isAddingNew) {
+            aiDataset.push({ id: `intent_${Date.now()}`, parentId: selectedFolderId, type: 'intent', name: tag, patterns: patterns, responses: responses });
+        }
+        
+        editingItemId = null; isAddingNew = null;
+        document.getElementById('ai-dataset-form-container').innerHTML = '';
+        saveAndRenderDataset();
+    });
+
+    document.getElementById('aiCancelFormBtn')?.addEventListener('click', () => {
+        editingItemId = null; isAddingNew = null;
+        document.getElementById('ai-dataset-form-container').innerHTML = '';
+    });
+};
+
+const renderDatasetView = () => {
+    const container = document.getElementById('ai-dataset-list-container');
+    const searchInput = document.getElementById('aiDatasetSearchInput');
+    if (!container || !searchInput) return;
+
+    const query = searchInput.value.toLowerCase().trim();
+
+    if (query) {
+        renderSearchResults(query);
+    } else {
+        renderDatasetTree();
+    }
+};
+
+const renderDatasetTree = () => {
+    const container = document.getElementById('ai-dataset-list-container');
+    if (!container) return;
+
+    const buildTreeHTML = (parentId, depth = 0) => {
+        const children = aiDataset.filter(item => item.parentId === parentId).sort((a, b) => {
+            if (a.type === 'folder' && b.type !== 'folder') return -1;
+            if (a.type !== 'folder' && b.type === 'folder') return 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        if (children.length === 0 && depth > 0) return '';
+
+        let html = `<ul style="list-style: none; padding-left: ${depth > 0 ? '20px' : '0'};">`;
+        children.forEach(item => {
+            const isFolder = item.type === 'folder';
+            const isCollapsed = collapsedStates[item.id] === true;
+            const isSelected = selectedFolderId === item.id;
+            const icon = isFolder ? (isCollapsed ? 'folder' : 'folder_open') : 'chat_bubble';
+
+            html += `
+                <li data-id="${item.id}" style="margin: 2px 0;">
+                    <div class="dataset-item" style="display: flex; flex-direction: column; padding: 8px; border-radius: 6px; cursor: pointer; background: ${isSelected ? '#334155' : 'transparent'};" onmouseover="this.style.background='${isSelected ? '#334155' : '#2c3e50'}'" onmouseout="this.style.background='${isSelected ? '#334155' : 'transparent'}'">
+                        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                            <div class="dataset-item-main" data-id="${item.id}" data-type="${item.type}" style="flex: 1; display: flex; align-items: center; gap: 8px;">
+                                <span class="material-symbols-outlined" style="color: ${isFolder ? '#f59e0b' : '#38bdf8'};">${icon}</span>
+                                <span style="color: #f1f5f9; font-weight: bold;">${escapeHtml(item.name)}</span>
+                            </div>
+                            <div style="display: flex; gap: 5px;">
+                                <button class="ai-edit-item-btn" data-id="${item.id}" style="background: transparent; color: #38bdf8; border: 1px solid #38bdf8; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 11px;">수정</button>
+                                <button class="ai-del-item-btn" data-id="${item.id}" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 11px;">삭제</button>
+                            </div>
+                        </div>
+            `;
+            if (!isFolder) {
+                html += `
+                    <div style="font-size: 12px; color: #cbd5e1; margin-top: 8px; padding-left: 36px; word-break: break-all;"><strong>입력 패턴:</strong> ${escapeHtml(item.patterns.join(', '))}</div>
+                    <div style="font-size: 12px; color: #94a3b8; margin-top: 4px; padding-left: 36px; word-break: break-all;"><strong>응답 출력:</strong> ${escapeHtml(item.responses.join(' | '))}</div>
+                `;
+            }
+            html += `</div>`;
+            if (isFolder && !isCollapsed) {
+                html += buildTreeHTML(item.id, depth + 1);
+            }
+            html += `</li>`;
+        });
+        html += '</ul>';
+        return html;
+    };
+
+    container.innerHTML = buildTreeHTML(null);
+    attachTreeEvents();
+};
+
+const renderSearchResults = (query) => {
+    const container = document.getElementById('ai-dataset-list-container');
+    if (!container) return;
+
+    const lowerQuery = query.toLowerCase();
+    const tagMatches = new Set();
+    const patternMatches = new Set();
+    const responseMatches = new Set();
+
+    aiDataset.filter(item => item.type === 'intent').forEach(item => {
+        if (item.name.toLowerCase().includes(lowerQuery)) tagMatches.add(item);
+        if (item.patterns.some(p => p.toLowerCase().includes(lowerQuery))) patternMatches.add(item);
+        if (item.responses.some(r => r.toLowerCase().includes(lowerQuery))) responseMatches.add(item);
+    });
+
+    const renderResultItem = (item) => `
+        <div style="background: #2c3e50; border-radius: 6px; padding: 12px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-weight: bold; color: #38bdf8;">Tag: ${escapeHtml(item.name)}</span>
+                <div style="display: flex; gap: 5px;">
+                    <button class="ai-edit-item-btn" data-id="${item.id}" style="background: transparent; color: #38bdf8; border: 1px solid #38bdf8; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 11px;">수정</button>
+                    <button class="ai-del-item-btn" data-id="${item.id}" style="background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 11px;">삭제</button>
+                </div>
+            </div>
+            <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 5px;"><strong>입력 패턴:</strong> ${escapeHtml(item.patterns.join(', '))}</div>
+            <div style="font-size: 12px; color: #94a3b8;"><strong>응답 출력:</strong> ${escapeHtml(item.responses.join(' | '))}</div>
+        </div>
+    `;
+
+    const renderSection = (title, itemsSet) => {
+        if (itemsSet.size === 0) return '';
+        let html = `<h4 style="color: #38bdf8; margin-top: 15px; margin-bottom: 10px; border-bottom: 1px solid #334155; padding-bottom: 5px;">${title} (${itemsSet.size}개)</h4>`;
+        itemsSet.forEach(item => html += renderResultItem(item));
+        return html;
+    };
+
+    let resultsHtml = renderSection('Tag 일치', tagMatches) +
+                      renderSection('입력 패턴 일치', patternMatches) +
+                      renderSection('AI 응답 일치', responseMatches);
+
+    if (resultsHtml === '') {
+        resultsHtml = '<div style="text-align: center; color: #94a3b8; padding: 20px;">검색 결과가 없습니다.</div>';
+    }
+
+    container.innerHTML = resultsHtml;
+    attachTreeEvents(); // Edit/Delete buttons need events
+};
+
+const attachTreeEvents = () => {
+    const container = document.getElementById('ai-dataset-list-container');
+    if (!container) return;
+
+    container.querySelectorAll('.dataset-item-main').forEach(el => {
+        el.addEventListener('click', () => {
+            const id = el.dataset.id;
+            const type = el.dataset.type;
+            if (type === 'folder') {
+                collapsedStates[id] = !collapsedStates[id];
+                selectedFolderId = id;
+                renderDatasetView();
+            } else {
+                editingItemId = id;
+                isAddingNew = null;
+                renderDatasetForm();
+            }
+        });
+    });
+
+    container.querySelectorAll('.ai-edit-item-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const id = e.currentTarget.dataset.id;
+            const item = aiDataset.find(i => i.id === id);
+            if (item.type === 'folder') {
+                const newName = prompt('새 폴더 이름을 입력하세요:', item.name);
+                if (newName && newName.trim()) {
+                    item.name = newName.trim();
+                    saveAndRenderDataset();
+                }
+            } else {
+                editingItemId = id;
+                isAddingNew = null;
+                renderDatasetForm();
+            }
+        });
+    });
+
+    container.querySelectorAll('.ai-del-item-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const id = e.currentTarget.dataset.id;
+            const item = aiDataset.find(i => i.id === id);
+            if (confirm(`'${item.name}' 항목을 삭제하시겠습니까? ${item.type === 'folder' ? '(하위 항목도 모두 삭제됩니다)' : ''}`)) {
+                const idsToDelete = new Set([id]);
+                if (item.type === 'folder') {
+                    const findChildrenRecursive = (parentId) => {
+                        aiDataset.filter(child => child.parentId === parentId).forEach(child => {
+                            idsToDelete.add(child.id);
+                            if (child.type === 'folder') findChildrenRecursive(child.id);
+                        });
+                    };
+                    findChildrenRecursive(id);
+                }
+                aiDataset = aiDataset.filter(i => !idsToDelete.has(i.id));
+                if (idsToDelete.has(selectedFolderId)) selectedFolderId = null;
+                if (idsToDelete.has(editingItemId)) editingItemId = null;
+                saveAndRenderDataset();
+            }
+        });
+    });
+};
+
+const attachDatasetControlEvents = () => {
+    document.getElementById('aiDatasetSearchInput').addEventListener('input', renderDatasetView);
+    document.getElementById('aiAddNewFolderBtn').addEventListener('click', () => {
+        const name = prompt('새 폴더 이름을 입력하세요:');
+        if (name && name.trim()) {
+            aiDataset.push({ id: `folder_${Date.now()}`, parentId: selectedFolderId, type: 'folder', name: name.trim() });
+            saveAndRenderDataset();
+        }
+    });
+    document.getElementById('aiAddNewIntentBtn').addEventListener('click', () => {
+        isAddingNew = { type: 'intent' };
+        editingItemId = null;
+        renderDatasetForm();
+    });
+    document.getElementById('aiSaveDataBtn').addEventListener('click', () => {
+        localStorage.setItem('gonard-ai-dataset', JSON.stringify(aiDataset));
+        alert('데이터셋이 로컬에 저장되었습니다.');
+    });
+
+    // 서버로 업로드 (기존 내보내기)
+    document.getElementById('aiUploadBtn').addEventListener('click', async () => {
+        if (!confirm('현재 데이터셋을 서버에 업로드하시겠습니까? (기존 서버 데이터는 덮어씌워집니다)')) return;
+        
+        try {
+            await setDoc(doc(db, "system", "ai_dataset"), {
+                data: aiDataset,
+                updatedAt: serverTimestamp()
+            });
+            alert('✅ 데이터셋이 서버에 성공적으로 업로드되었습니다.');
+        } catch (e) {
+            console.error(e);
+            alert('서버 업로드 중 오류가 발생했습니다: ' + e.message);
+        }
+    });
+
+    // 서버에서 업데이트 (기존 가져오기)
+    document.getElementById('aiUpdateBtn').addEventListener('click', async () => {
+        if (!confirm('서버로부터 최신 데이터셋을 다운로드하여 현재 작업을 덮어쓰시겠습니까?')) return;
+        
+        try {
+            const docRef = doc(db, "system", "ai_dataset");
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                const serverData = docSnap.data().data;
+                if (Array.isArray(serverData)) {
+                    aiDataset = serverData;
+                    saveAndRenderDataset(); // This saves to localstorage and re-renders
+                    alert('✅ 서버로부터 최신 데이터셋을 업데이트했습니다.');
+                } else {
+                    alert('서버 데이터 형식이 올바르지 않습니다.');
+                }
+            } else {
+                alert('서버에 저장된 데이터셋이 없습니다.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('서버에서 데이터를 가져오는 중 오류가 발생했습니다: ' + e.message);
+        }
+    });
+};
+
+const saveAndRenderDataset = () => {
+    localStorage.setItem('gonard-ai-dataset', JSON.stringify(aiDataset));
+    renderDatasetView();
 };
 
 export const onReclick = () => {

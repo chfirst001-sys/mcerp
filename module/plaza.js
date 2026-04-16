@@ -55,7 +55,7 @@ const loadSubModule = async (tabId) => {
     content.innerHTML = '<div style="text-align: center; padding: 20px; color: #7f8c8d;">모듈을 불러오는 중...</div>';
     
     try {
-        const APP_VERSION = "20260415_03"; // 캐시 무효화용 버전
+        const APP_VERSION = "20260416_01"; // 캐시 무효화용 버전
         const module = await import(`./plaza/${tabId}.js?v=${APP_VERSION}`);
         currentSubModule = module;
         module.render(content);
