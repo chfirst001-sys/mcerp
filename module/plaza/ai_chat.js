@@ -1,5 +1,6 @@
 import { collection, query, doc, getDoc, setDoc, addDoc, onSnapshot, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, auth, escapeHtml } from "../../js/main.js";
+import { getAIResponse } from "./ai_engine.js";
 
 let unsubMessages = null;
 let userAiModel = null;
@@ -149,38 +150,20 @@ export const renderAIChatRoom = async (container, targetUid, targetName) => {
             await addDoc(collection(db, "chats", chatId, "messages"), { senderId: myUid, text: text, createdAt: serverTimestamp() });
             if (!userAiModel) return;
             setTimeout(async () => {
-                const inputTensor = window.tf.tensor2d([userAiVocab.map(w => tokenize(text).includes(w) ? 1 : 0)]);
-                const scores = userAiModel.predict(inputTensor).dataSync();
-                const intentIdx = scores.indexOf(Math.max(...scores));
-                let aiResponse = "무슨 말씀이신지 잘 이해하지 못했어요. 다르게 표현해 주실 수 있나요?";
-                if (Math.max(...scores) > 0.4) {
-                    const predictedTag = userAiClasses[intentIdx];
-                    const responses = userAiResponses[predictedTag];
+                // 공통 AI 엔진 호출
+                const { response, action } = await getAIResponse(text, userAiModel, userAiVocab, userAiClasses, userAiResponses);
 
-                    // --- 메타데이터 및 액션 처리 ---
-                    const now = new Date();
-                    const timeString = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-                    const dateString = now.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-
-                    if (predictedTag === 'time_check') {
-                        const baseResponse = (responses && responses.length > 0) ? responses[Math.floor(Math.random() * responses.length)] : "현재 시간은 {{TIME}}입니다.";
-                        aiResponse = baseResponse.replace('{{TIME}}', timeString);
-                    } else if (predictedTag === 'date_check') {
-                        const baseResponse = (responses && responses.length > 0) ? responses[Math.floor(Math.random() * responses.length)] : "오늘은 {{DATE}}입니다.";
-                        aiResponse = baseResponse.replace('{{DATE}}', dateString);
-                    } else if (predictedTag === 'create_memo') {
-                        aiResponse = responses && responses.length > 0 ? responses[Math.floor(Math.random() * responses.length)] : "새 나드 작성창을 열어드릴게요.";
-                        document.dispatchEvent(new CustomEvent('openNardModal'));
-                    } else if (predictedTag === 'search_nard') {
-                        aiResponse = responses && responses.length > 0 ? responses[Math.floor(Math.random() * responses.length)] : "통합 검색창을 열어드릴게요.";
-                        document.getElementById('globalSearchBtn')?.click();
-                    } else if (responses && responses.length > 0) {
-                        aiResponse = responses[Math.floor(Math.random() * responses.length)];
-                    } else aiResponse = `[의도 파악됨: ${predictedTag}] 하지만 정의된 답변이 없습니다.`;
+                // 액션 처리
+                if (action === 'openNardModal') {
+                    document.dispatchEvent(new CustomEvent('openNardModal'));
+                } else if (action === 'openSearchModal') {
+                    document.getElementById('globalSearchBtn')?.click();
                 }
-                inputTensor.dispose();
-                await addDoc(collection(db, "chats", chatId, "messages"), { senderId: 'ai_friend', text: aiResponse, createdAt: serverTimestamp() });
-                await setDoc(doc(db, "chats", chatId), { lastMessage: aiResponse, lastMessageTime: serverTimestamp() }, { merge: true });
+
+                // Firestore에 AI 응답 저장
+                await addDoc(collection(db, "chats", chatId, "messages"), { senderId: 'ai_friend', text: response, createdAt: serverTimestamp() });
+                await setDoc(doc(db, "chats", chatId), { lastMessage: response, lastMessageTime: serverTimestamp() }, { merge: true });
+
             }, 1000);
         } catch (err) { alert("전송에 실패했습니다."); }
     };
