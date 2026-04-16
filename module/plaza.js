@@ -61,7 +61,14 @@ const loadSubModule = async (tabId) => {
         module.render(content);
     } catch (e) {
         console.error(`Sub-module load failed (${tabId}):`, e);
-        content.innerHTML = `<div style="text-align: center; padding: 20px; color: #e74c3c;">모듈을 불러오지 못했습니다.</div>`;
+        let title = ''; let desc = '';
+        switch(tabId) {
+            case 'friend': title='친구'; desc='친구 목록 및 P2P 설정 기능을 준비 중입니다.'; break;
+            case 'community': title='광장'; desc='공개 커뮤니티 기능을 준비 중입니다.'; break;
+            case 'news': title='NEWS'; desc='새로운 소식 기능을 준비 중입니다.'; break;
+            default: title=tabId; desc='준비 중입니다.';
+        }
+        content.innerHTML = `<div class="module-card" style="text-align:center; padding:40px 20px;"><h3>${title}</h3><p style="color:#7f8c8d;">${desc}</p></div>`;
     }
 };
 
