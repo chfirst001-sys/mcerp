@@ -284,7 +284,7 @@ const loadSubModule = async (tabId) => {
     content.innerHTML = '<div style="text-align: center; padding: 20px; color: #94a3b8;">로딩 중...</div>';
 
     try {
-        const module = await import(`./ai/${tabId}.js?v=20260416_02`);
+        const module = await import(`./ai/${tabId}.js?v=20260416_03`);
         currentSubModule = module;
         module.render(content, aiContext);
     } catch (e) {
