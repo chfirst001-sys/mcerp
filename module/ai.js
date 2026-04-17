@@ -11,25 +11,59 @@ let lastReclickTime = 0;
 let currentSubModule = null;
 
 // --- Shared State between sub-modules ---
-let aiModel = null;
-let aiVocab = [];
-let aiClasses = [];
-let aiDataset = [];
-let modelStats = { isTrained: false, lastTrainTime: null, trainingDuration: 0, epochs: 0, batchSize: 0, learningRate: 0, finalLoss: null, finalAccuracy: null, vocabSize: 0, numClasses: 0, numSamples: 0 };
+export let aiModel = null;
+export let aiVocab = [];
+export let aiClasses = [];
+export let aiDataset = [];
+export let modelStats = { isTrained: false, lastTrainTime: null, trainingDuration: 0, epochs: 0, batchSize: 0, learningRate: 0, finalLoss: null, finalAccuracy: null, vocabSize: 0, numClasses: 0, numSamples: 0 };
 
 // --- State for Dataset UI ---
-let collapsedStates = {};
-let selectedFolderId = null;
-let editingItemId = null;
-let isAddingNew = null;
-let movingItemId = null;
-let menuOpenStates = {};
-let menuTimers = {};
+export let collapsedStates = {};
+export let selectedFolderId = null;
+export let editingItemId = null;
+export let isAddingNew = null;
+export let movingItemId = null;
+export let menuOpenStates = {};
+export let menuTimers = {};
+
+// --- UI Rerender Helper ---
+const rerenderCurrentTabWithScroll = () => {
+    const content = document.getElementById('aiTabContent');
+    if (!content) return;
+    const scrollTop = content.scrollTop;
+    
+    if (currentSubModule && currentSubModule.render) {
+        currentSubModule.render(content, aiContext);
+        // Restore scroll position after a short delay to allow the DOM to update
+        setTimeout(() => {
+            content.scrollTop = scrollTop;
+        }, 0);
+    } else {
+        // Fallback to full reload if something is wrong
+        loadSubModule(currentAITab).then(() => {
+            setTimeout(() => { content.scrollTop = scrollTop; }, 0);
+        });
+    }
+};
+
+// --- Setters for state mutation from sub-modules ---
+export const setAiModel = (model) => { aiModel = model; };
+export const setAiVocab = (vocab) => { aiVocab = vocab; };
+export const setAiClasses = (classes) => { aiClasses = classes; };
+export const setAiDataset = (dataset) => { aiDataset = dataset; };
+export const setModelStats = (stats) => { modelStats = stats; };
+export const setCollapsedStates = (states) => { collapsedStates = states; };
+export const setSelectedFolderId = (id) => { selectedFolderId = id; };
+export const setEditingItemId = (id) => { editingItemId = id; };
+export const setIsAddingNew = (val) => { isAddingNew = val; };
+export const setMovingItemId = (id) => { movingItemId = id; };
+export const setMenuOpenStates = (states) => { menuOpenStates = states; };
+export const setMenuTimers = (timers) => { menuTimers = timers; };
 
 // --- Shared Utility Functions ---
-const bufferToBase64 = (buffer) => { let binary = ''; const bytes = new Uint8Array(buffer); for (let i = 0; i < bytes.byteLength; i++) { binary += String.fromCharCode(bytes[i]); } return btoa(binary); };
-const tokenize = (text) => text.replace(/[.,!?]/g, '').trim().split(/\s+/);
-const preprocessData = () => {
+export const bufferToBase64 = (buffer) => { let binary = ''; const bytes = new Uint8Array(buffer); for (let i = 0; i < bytes.byteLength; i++) { binary += String.fromCharCode(bytes[i]); } return btoa(binary); };
+export const tokenize = (text) => text.replace(/[.,!?]/g, '').trim().split(/\s+/);
+export const preprocessData = () => {
     let words = [], classes = [], documents = [];
     const intents = aiDataset.filter(item => item.type === 'intent');
     intents.forEach(intent => {
@@ -45,23 +79,23 @@ const preprocessData = () => {
     });
     return { x: trainingX, y: trainingY };
 };
-const toggleDatasetMenu = (id) => {
+export const toggleDatasetMenu = (id) => {
     const wasOpen = menuOpenStates[id];
     menuOpenStates = {}; // Close all other menus
     if (!wasOpen) {
         menuOpenStates[id] = true;
         resetDatasetMenuTimer(id);
     }
-    loadSubModule('dataset');
+    rerenderCurrentTabWithScroll();
 };
-const resetDatasetMenuTimer = (id) => {
+export const resetDatasetMenuTimer = (id) => {
     if (menuTimers[id]) clearTimeout(menuTimers[id]);
     menuTimers[id] = setTimeout(() => {
         delete menuOpenStates[id];
-        loadSubModule('dataset');
+        rerenderCurrentTabWithScroll();
     }, 5000);
 };
-const moveItemOrder = (itemId, direction) => {
+export const moveItemOrder = (itemId, direction) => {
     const item = aiDataset.find(i => i.id === itemId);
     if (!item) return;
     const siblings = aiDataset.filter(i => i.parentId === item.parentId).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
@@ -74,9 +108,9 @@ const moveItemOrder = (itemId, direction) => {
         [item.sortOrder, nextSibling.sortOrder] = [nextSibling.sortOrder, item.sortOrder];
     }
     localStorage.setItem('gonard-ai-dataset', JSON.stringify(aiDataset));
-    loadSubModule('dataset');
+    rerenderCurrentTabWithScroll();
 };
-const indentItem = (itemId) => {
+export const indentItem = (itemId) => {
     const item = aiDataset.find(i => i.id === itemId);
     if (!item) return;
     const siblings = aiDataset.filter(i => i.parentId === item.parentId).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
@@ -88,11 +122,11 @@ const indentItem = (itemId) => {
             item.sortOrder = Date.now();
             collapsedStates[prevSibling.id] = false;
             localStorage.setItem('gonard-ai-dataset', JSON.stringify(aiDataset));
-            loadSubModule('dataset');
+            rerenderCurrentTabWithScroll();
         } else { alert('폴더 안으로만 이동할 수 있습니다.'); }
     }
 };
-const outdentItem = (itemId) => {
+export const outdentItem = (itemId) => {
     const item = aiDataset.find(i => i.id === itemId);
     if (!item || !item.parentId) return;
     const parent = aiDataset.find(i => i.id === item.parentId);
@@ -100,7 +134,7 @@ const outdentItem = (itemId) => {
         item.parentId = parent.parentId; 
         item.sortOrder = parent.sortOrder + 1; 
         localStorage.setItem('gonard-ai-dataset', JSON.stringify(aiDataset));
-        loadSubModule('dataset');
+        rerenderCurrentTabWithScroll();
     }
 };
 
@@ -165,6 +199,7 @@ export const init = async (container) => {
             .dataset-action-btn { background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 4px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; }
             .dataset-action-btn:hover { background: #334155; color: white; }
             .dataset-action-btn .material-symbols-outlined { font-size: 16px; }
+            }
             .ai-sub-tab-menu {
                 -ms-overflow-style: none; /* IE and Edge */
                 scrollbar-width: none; /* Firefox */
@@ -214,7 +249,7 @@ export const init = async (container) => {
             try {
                 const parsedData = JSON.parse(savedData);
                 if (Array.isArray(parsedData) && parsedData.length > 0 && parsedData.every(item => item && typeof item === 'object' && item.id && item.type)) {
-                    aiDataset = parsedData;
+                    setAiDataset(parsedData);
                     loadedSuccessfully = true;
                 } 
                 else if (Array.isArray(parsedData) && parsedData.length > 0 && parsedData[0] && parsedData[0].tag && !parsedData[0].type) {
@@ -229,7 +264,7 @@ export const init = async (container) => {
                             });
                         }
                     });
-                    aiDataset = newDataset;
+                    setAiDataset(newDataset);
                     localStorage.setItem('gonard-ai-dataset', JSON.stringify(newDataset));
                     loadedSuccessfully = true;
                 }
@@ -244,7 +279,7 @@ export const init = async (container) => {
             defaultTrainingData.forEach((intent, index) => {
                 newDataset.push({ id: `intent_${Date.now()}_${index}`, parentId: 'folder_root', type: 'intent', name: intent.tag, patterns: intent.patterns, responses: intent.responses, sortOrder: index + 1 });
             });
-            aiDataset = newDataset;
+            setAiDataset(newDataset);
         }
 
         aiDataset.forEach((item, index) => {
@@ -285,7 +320,7 @@ const loadSubModule = async (tabId) => {
     content.innerHTML = '<div style="text-align: center; padding: 20px; color: #94a3b8;">로딩 중...</div>';
 
     try {
-        const module = await import(`./ai/${tabId}.js?v=20260416_04`);
+        const module = await import(`./ai/${tabId}.js?v=20260416_05`);
         currentSubModule = module;
         module.render(content, aiContext);
     } catch (e) {
