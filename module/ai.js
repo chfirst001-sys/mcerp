@@ -4,7 +4,7 @@ import { db, escapeHtml } from "../js/main.js";
 // --- Global State for AI Module ---
 let tfLoaded = false;
 let currentAITab = 'dataset';
-const tabIds = ['dataset', 'train', 'version', 'test', 'guide'];
+const tabIds = ['dataset', 'train', 'version', 'trigger', 'test', 'guide'];
 let currentTabIndex = 0;
 let subTabButtons = null;
 let lastReclickTime = 0;
@@ -223,6 +223,7 @@ export const init = async (container) => {
                     <button class="ai-tab-btn active" data-tab="dataset" style="flex-shrink: 0; background: #38bdf8; color: #0f172a; border: none; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📊 데이터셋</button>
                     <button class="ai-tab-btn" data-tab="train" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">⚙️ 학습/튜닝</button>
                     <button class="ai-tab-btn" data-tab="version" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📈 모델버전</button>
+                    <button class="ai-tab-btn" data-tab="trigger" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">⚡ Ai트리거</button>
                     <button class="ai-tab-btn" data-tab="test" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">💬 봇 테스트</button>
                     <button class="ai-tab-btn" data-tab="guide" style="flex-shrink: 0; background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s;">📖 사용 설명서</button>
                 </div>
@@ -320,7 +321,7 @@ const loadSubModule = async (tabId) => {
     content.innerHTML = '<div style="text-align: center; padding: 20px; color: #94a3b8;">로딩 중...</div>';
 
     try {
-        const module = await import(`./ai/${tabId}.js?v=20260416_05`);
+        const module = await import(`./ai/${tabId}.js?v=20260416_06`);
         currentSubModule = module;
         module.render(content, aiContext);
     } catch (e) {
