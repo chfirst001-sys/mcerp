@@ -684,8 +684,9 @@ export const init = (container) => {
         contentInput.addEventListener('input', debouncedAutoSave);
 
         // 저장된 설정 데이터 불러오기 (칸반 생성 액션으로 들어온 경우 session 참조)
+        const isFromKanban = !!sessionStorage.getItem('newNardKanbanStatus');
         const initialStatus = sessionStorage.getItem('newNardKanbanStatus') || 'todo';
-        document.getElementById('nardShowInKanban').value = tempSaveData?.showInKanban ? 'true' : 'false';
+        document.getElementById('nardShowInKanban').value = (tempSaveData?.showInKanban || isFromKanban) ? 'true' : 'false';
         document.getElementById('nardStatus').value = tempSaveData?.status || initialStatus;
         document.getElementById('nardDueDate').value = tempSaveData?.dueDate || '';
         document.getElementById('nardDocType').value = tempSaveData?.docType || '';

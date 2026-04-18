@@ -1,22 +1,17 @@
 {
   "name": "NardTeo - 나드터",
   "short_name": "NardTeo",
-  "start_url": "/",
+  "start_url": "index.html",
   "display": "standalone",
   "background_color": "#f4f6f8",
   "theme_color": "#2c3e50",
   "description": "만물의 근원, 데이터를 이루는 최소 단위(Nard)들이 모이는 공간(터) - 올인원 관리 시스템",
   "icons": [
     {
-      "src": "/icons/icon-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png",
+      "src": "icons/icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
-    },
-    {
-      "src": "/icons/icon-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png"
     }
   ]
 }

@@ -31,6 +31,7 @@ const PERMISSION_RESOURCES = {
         { id: "edit_accounting", name: "회계/관리비 부과 확정 및 수정" },
         { id: "edit_facility", name: "시설물 및 협력업체 정보 수정" },
         { id: "execute_ai_trigger", name: "AI 트리거 및 시스템 액션 실행 (AI 명령 수행)" },
+        { id: "delete_plaza", name: "사용자 생성 광장 삭제" },
         { id: "write_notice", name: "광장 공지사항 작성" },
         { id: "view_all_tenant_info", name: "타 세대 개인정보 전체 조회" }
     ]

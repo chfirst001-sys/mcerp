@@ -25,10 +25,10 @@ const injectStyles = () => {
     const style = document.createElement('style');
     style.id = 'kanban-module-styles';
     style.textContent = `
-        .kanban-wrapper { display: flex; flex-direction: column; height: calc(100vh - 120px); background: #f4f6f8; overflow: hidden; }
+        .kanban-wrapper { display: flex; flex-direction: column; height: calc(100vh - 121px); margin: -14px -15px -20px -15px; background: #f4f6f8; overflow: hidden; }
         .kanban-container { position: relative; overflow: hidden; flex: 1; width: 100%; touch-action: pan-y; }
         .kanban-track { display: flex; height: 100%; width: 100%; will-change: transform; align-items: flex-start; }
-        .kanban-column-wrapper { flex: 0 0 100%; width: 100%; padding: 16px; box-sizing: border-box; display: flex; justify-content: center; height: 100%; }
+        .kanban-column-wrapper { flex: 0 0 100%; width: 100%; padding: 10px 15px 25px 15px; box-sizing: border-box; display: flex; justify-content: center; height: 100%; }
         .kanban-column { width: 100%; max-width: 400px; background: #eef2f5; border-radius: 8px; display: flex; flex-direction: column; max-height: 100%; border: 1px solid #dfe6e9; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .kanban-header { padding: 12px 16px; font-weight: bold; border-bottom: 1px solid #dfe6e9; display: flex; justify-content: space-between; align-items: center; color: #2c3e50; }
         .kanban-header-left { display: flex; align-items: center; gap: 8px; }
@@ -247,7 +247,7 @@ const loadData = async () => {
             const tree = userDoc.data().nardTree || userDoc.data().memoTree || [];
             const secretKey = auth.currentUser.uid;
             
-            allNards = tree.map(item => {
+            allNards = tree.filter(item => item.showInKanban === true).map(item => {
                 let decTitle = item.title;
                 let decContent = item.content;
                 if (item.isEncrypted) {

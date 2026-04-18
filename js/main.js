@@ -1,6 +1,6 @@
 // Firebase SDK 모듈 가져오기
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-import { getFirestore, doc, getDoc, updateDoc, arrayUnion, arrayRemove, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { getFirestore, enableMultiTabIndexedDbPersistence, doc, getDoc, updateDoc, arrayUnion, arrayRemove, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 import CryptoJS from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm"; // 검색 시 암호화된 나드 복호화용
 
@@ -25,6 +25,18 @@ const firebaseConfig = {
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+
+// === Firebase 오프라인 지속성(캐시) 자동 활성화 ===
+if (!window._firestorePersistenceEnabled) {
+    window._firestorePersistenceEnabled = true;
+    enableMultiTabIndexedDbPersistence(db).catch((err) => {
+        if (err.code == 'failed-precondition') {
+            console.warn('여러 탭이 열려 있어 오프라인 모드를 활성화할 수 없습니다.');
+        } else if (err.code == 'unimplemented') {
+            console.warn('현재 브라우저가 오프라인 모드를 지원하지 않습니다.');
+        }
+    });
+}
 
 // XSS 방지를 위한 HTML 문자열 이스케이프 유틸리티
 export const escapeHtml = (unsafe) => {
@@ -700,7 +712,7 @@ if (searchInput) {
 // === Service Worker 등록 (PWA 지원) ===
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then(registration => {
+        navigator.serviceWorker.register('sw.js').then(registration => {
             console.log('ServiceWorker 등록 성공:', registration.scope);
         }).catch(error => {
             console.error('ServiceWorker 등록 실패:', error);

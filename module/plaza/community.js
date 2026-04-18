@@ -1,4 +1,4 @@
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDocs, doc, getDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDocs, doc, getDoc, deleteDoc, updateDoc, where } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, auth, escapeHtml } from "../../js/main.js";
 
 let unsubscribePlaza = null;
@@ -54,7 +54,7 @@ export const render = async (container) => {
                     </div>
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
-                            <h4 style="margin: 0; color: #2c3e50; font-size: 15px;">${escapeHtml(b.name)} ${b.data && b.data.isCustomPlaza ? '' : '공식 '}광장</h4>
+                            <h4 style="margin: 0; color: #2c3e50; font-size: 15px;">${escapeHtml(b.name)}${b.data && b.data.isCustomPlaza ? '' : ' 공식 광장'}</h4>
                         </div>
                         <div style="font-size: 12px; color: #7f8c8d;">${b.data && b.data.description ? escapeHtml(b.data.description) : '입주민과 관리자가 소통하는 공간입니다.'}</div>
                     </div>
@@ -79,6 +79,13 @@ export const render = async (container) => {
             </button>
         </div>
         
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <input type="text" id="searchPublicPlazaInput" placeholder="공개 광장 검색 (이름 또는 소개)..." style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; margin: 0;">
+            <button id="searchPublicPlazaBtn" style="background: #34495e; color: white; border: none; padding: 0 15px; border-radius: 4px; cursor: pointer; font-weight: bold;">검색</button>
+        </div>
+        <div id="publicPlazaSearchResults" style="display: none; flex-direction: column; gap: 10px; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #eee; max-height: 300px; overflow-y: auto;">
+        </div>
+
         <div style="display: flex; flex-direction: column;">
             ${listHtml}
         </div>
@@ -88,7 +95,11 @@ export const render = async (container) => {
             <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
                 <h3 style="margin-top: 0; color: #2c3e50; margin-bottom: 20px;">새 커뮤니티 광장 만들기</h3>
                 <input type="text" id="newPlazaName" placeholder="광장 이름 (예: 독서 모임)" style="width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
-                <input type="text" id="newPlazaDesc" placeholder="간단한 소개" style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                <input type="text" id="newPlazaDesc" placeholder="간단한 소개" style="width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                <select id="newPlazaVisibility" style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
+                    <option value="public">공개 (누구나 검색 및 참여 가능)</option>
+                    <option value="private">비공개 (초대된 회원만 참여 가능)</option>
+                </select>
                 <div style="display: flex; gap: 10px;">
                     <button id="saveCreatePlazaBtn" style="flex: 1; background: #2980b9; padding: 12px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">생성</button>
                     <button id="cancelCreatePlazaBtn" style="flex: 1; background: #95a5a6; padding: 12px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">취소</button>
@@ -107,13 +118,23 @@ export const render = async (container) => {
     document.getElementById('saveCreatePlazaBtn').addEventListener('click', async () => {
         const name = document.getElementById('newPlazaName').value.trim();
         const desc = document.getElementById('newPlazaDesc').value.trim();
+        const visibility = document.getElementById('newPlazaVisibility').value;
         if (!name) return alert('광장 이름을 입력하세요.');
         
         const btn = document.getElementById('saveCreatePlazaBtn');
         btn.disabled = true; btn.textContent = '생성 중...';
         
         try {
-            await addDoc(collection(db, "buildings"), { name: name, description: desc, isCustomPlaza: true, createdAt: serverTimestamp(), allowedEmails: [auth.currentUser.email], adminEmails: [auth.currentUser.email], creatorUid: auth.currentUser.uid });
+            await addDoc(collection(db, "buildings"), { 
+                name: name, 
+                description: desc, 
+                isCustomPlaza: true, 
+                isPublic: visibility === 'public',
+                createdAt: serverTimestamp(), 
+                allowedEmails: [auth.currentUser.email], 
+                adminEmails: [auth.currentUser.email], 
+                creatorUid: auth.currentUser.uid 
+            });
             document.getElementById('createPlazaModal').style.display = 'none';
             render(container); // 목록 새로고침
         } catch(e) {
@@ -121,6 +142,88 @@ export const render = async (container) => {
         } finally {
             btn.disabled = false; btn.textContent = '생성';
         }
+    });
+
+    // 공개 광장 검색 기능
+    const searchBtn = document.getElementById('searchPublicPlazaBtn');
+    const searchInput = document.getElementById('searchPublicPlazaInput');
+    const searchResults = document.getElementById('publicPlazaSearchResults');
+
+    searchBtn.addEventListener('click', async () => {
+        const keyword = searchInput.value.trim().toLowerCase();
+        if (!keyword) return alert('검색어를 입력하세요.');
+
+        searchResults.style.display = 'flex';
+        searchResults.innerHTML = '<div style="text-align: center; color: #7f8c8d; font-size: 13px;">검색 중...</div>';
+
+        try {
+            const q = query(collection(db, "buildings"), where("isPublic", "==", true));
+            const snap = await getDocs(q);
+            
+            let resultsHtml = '<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ccc; padding-bottom:8px; margin-bottom:5px;"><strong style="color:#2c3e50;">검색 결과</strong><button id="closeSearchPlazaBtn" style="background:none; border:none; cursor:pointer; color:#7f8c8d; font-size:12px;">닫기</button></div>';
+            let count = 0;
+
+            snap.forEach(docSnap => {
+                const b = docSnap.data();
+                const bId = docSnap.id;
+                
+                if (b.allowedEmails && auth.currentUser && b.allowedEmails.includes(auth.currentUser.email)) return;
+                
+                if (b.name.toLowerCase().includes(keyword) || (b.description && b.description.toLowerCase().includes(keyword))) {
+                    count++;
+                    resultsHtml += `
+                        <div style="background: white; border: 1px solid #e0e0e0; padding: 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: bold; color: #2980b9; font-size: 14px;">${escapeHtml(b.name)}</div>
+                                <div style="font-size: 12px; color: #7f8c8d; margin-top: 4px;">${escapeHtml(b.description || '소개 없음')}</div>
+                            </div>
+                            <button class="join-plaza-btn" data-id="${bId}" style="background: #27ae60; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0; margin-left: 10px;">참여하기</button>
+                        </div>
+                    `;
+                }
+            });
+
+            if (count === 0) {
+                resultsHtml += '<div style="text-align: center; color: #7f8c8d; font-size: 13px; padding: 10px;">검색 결과가 없습니다.</div>';
+            }
+
+            searchResults.innerHTML = resultsHtml;
+
+            document.getElementById('closeSearchPlazaBtn').addEventListener('click', () => {
+                searchResults.style.display = 'none';
+                searchInput.value = '';
+            });
+
+            searchResults.querySelectorAll('.join-plaza-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const targetId = e.currentTarget.dataset.id;
+                    if (confirm('이 광장에 참여하시겠습니까?')) {
+                        try {
+                            const pDoc = await getDoc(doc(db, "buildings", targetId));
+                            if (pDoc.exists()) {
+                                let members = pDoc.data().allowedEmails || [];
+                                if (!members.includes(auth.currentUser.email)) {
+                                    members.push(auth.currentUser.email);
+                                    await updateDoc(doc(db, "buildings", targetId), { allowedEmails: members });
+                                    alert('광장에 성공적으로 참여했습니다!');
+                                    render(container);
+                                }
+                            }
+                        } catch (err) {
+                            console.error(err); alert('참여에 실패했습니다.');
+                        }
+                    }
+                });
+            });
+
+        } catch (err) {
+            console.error("검색 실패:", err);
+            searchResults.innerHTML = '<div style="text-align: center; color: #e74c3c; font-size: 13px;">검색 중 오류가 발생했습니다.</div>';
+        }
+    });
+    
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') searchBtn.click();
     });
 };
 
@@ -199,6 +302,10 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
     const isGlobalAdmin = ['architect', 'mc_header', 'mc_front', 'admin', 'staff', 'mega_admin', 'mega_staff'].includes(userRole);
     const isPlazaAdmin = bData && bData.isCustomPlaza && (isGlobalAdmin || (bData.adminEmails && auth.currentUser && bData.adminEmails.includes(auth.currentUser.email)));
 
+    const hasDeletePerm = window.currentUserPermissions && window.currentUserPermissions['delete_plaza'] === 'write';
+    const isCreator = bData && auth.currentUser && bData.creatorUid === auth.currentUser.uid;
+    const canDeletePlaza = bData && bData.isCustomPlaza && (isCreator || hasDeletePerm || ['architect', 'admin'].includes(userRole));
+
     container.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -208,6 +315,7 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
                 <h3 style="margin: 0; color: #2c3e50;">${escapeHtml(bName)} 광장</h3>
             </div>
             <div style="display: flex; gap: 5px;">
+                ${canDeletePlaza ? `<button id="deletePlazaBtn" style="background: #e74c3c; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">delete</span> 삭제</button>` : ''}
                 ${isPlazaAdmin ? `<button id="managePlazaBtn" style="background: #34495e; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">settings</span> 관리</button>` : ''}
                 <button id="writePostBtn" style="background: #f39c12; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">edit_square</span> 글쓰기
@@ -265,6 +373,36 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
         currentPlazaBuildingId = null;
         render(container);
     });
+
+    const deletePlazaBtn = document.getElementById('deletePlazaBtn');
+    if (deletePlazaBtn) {
+        deletePlazaBtn.addEventListener('click', async () => {
+            if (confirm(`'${bName}' 광장을 정말 삭제하시겠습니까?\n(모든 게시물과 댓글이 함께 삭제되며 복구할 수 없습니다.)`)) {
+                try {
+                    // 1. DB에서 광장 데이터 완전히 삭제
+                    await deleteDoc(doc(db, "buildings", currentPlazaBuildingId));
+                    
+                    // 2. 현재 사용자의 나드(Nard) 트리에 연동되어 있던 광장 노드 정리
+                    const userRef = doc(db, "users", auth.currentUser.uid);
+                    const userDoc = await getDoc(userRef);
+                    if (userDoc.exists()) {
+                        let nardTree = userDoc.data().nardTree || [];
+                        const plazaRootId = `nard_plaza_${currentPlazaBuildingId}`;
+                        const bldgNardId = `nard_bldg_${currentPlazaBuildingId}`;
+                        nardTree = nardTree.filter(n => n.id !== plazaRootId && n.parentId !== plazaRootId && n.id !== bldgNardId);
+                        await updateDoc(userRef, { nardTree });
+                    }
+
+                    alert('광장이 성공적으로 삭제되었습니다.');
+                    currentPlazaBuildingId = null;
+                    render(container); // 광장 목록 화면으로 복귀
+                } catch (error) {
+                    console.error("광장 삭제 실패:", error);
+                    alert("광장 삭제에 실패했습니다.");
+                }
+            }
+        });
+    }
 
     document.getElementById('writePostBtn').addEventListener('click', () => {
         if (!auth.currentUser) return alert('로그인이 필요합니다.');
