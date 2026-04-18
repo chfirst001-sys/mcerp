@@ -152,7 +152,7 @@ const aiContext = {
     get menuOpenStates() { return menuOpenStates; }, setMenuOpenStates(v) { menuOpenStates = v; },
     get menuTimers() { return menuTimers; }, setMenuTimers(v) { menuTimers = v; },
     get tfLoaded() { return tfLoaded; },
-    bufferToBase64, tokenize, preprocessData, toggleDatasetMenu, resetDatasetMenuTimer, moveItemOrder, indentItem, outdentItem
+    bufferToBase64, tokenize, preprocessData, toggleDatasetMenu, resetDatasetMenuTimer, moveItemOrder, indentItem, outdentItem, escapeHtml
 };
 
 // 기본 제공되는 비서용 데이터셋 (나드(GoNard) 환경에 맞춤)
@@ -199,6 +199,10 @@ export const init = async (container) => {
             .dataset-action-btn { background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 4px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; }
             .dataset-action-btn:hover { background: #334155; color: white; }
             .dataset-action-btn .material-symbols-outlined { font-size: 16px; }
+            
+            .form-label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px; font-weight: bold; }
+            .form-input { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: white; margin-bottom: 15px; box-sizing: border-box; font-size: 14px; }
+            .form-input:focus { border-color: #3b82f6; outline: none; }
             }
             .ai-sub-tab-menu {
                 -ms-overflow-style: none; /* IE and Edge */

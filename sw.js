@@ -36,7 +36,7 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     // Firebase 및 외부 API(DB 등) 요청은 서비스 워커 캐시를 타지 않도록 예외 처리
     const url = event.request.url;
-    if (url.includes('firestore.googleapis.com') || url.includes('firebase') || url.includes('gstatic.com')) {
+    if (url.includes('firestore.googleapis.com') || url.includes('firebase') || url.includes('gstatic.com') || url.includes('cloudfunctions.net')) {
         return; // 이 요청들은 가로채지 않고 브라우저가 직접 처리하도록 넘김
     }
 

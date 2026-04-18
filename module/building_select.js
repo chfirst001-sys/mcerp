@@ -11,6 +11,12 @@ export const init = (container) => {
     const listContainer = document.getElementById('buildingSelectionList');
 
     const loadBuildings = async () => {
+        // 건물 선택 기능은 관리회사(메가관리자) 이상이거나 본사 직원만 사용 가능
+        if ((window.currentUserWeight || 0) <= 50) {
+            listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #e74c3c; background: #fff; border-radius: 8px; border: 1px solid #eee; margin-top: 20px;"><span class="material-symbols-outlined" style="font-size: 40px; color: #e74c3c; margin-bottom: 10px;">block</span><br>접근 권한이 없습니다.<br><span style="font-size: 12px; color: #7f8c8d; margin-top: 5px; display: inline-block;">입주자 또는 단일 건물 소속 계정은 다른 건물을 선택할 수 없습니다.</span></div>';
+            return;
+        }
+
         try {
             const q = query(collection(db, "buildings"), orderBy("createdAt", "desc"));
             const querySnapshot = await getDocs(q);

@@ -322,12 +322,12 @@ export const init = (container) => {
 
                     // 지정한 수만큼 기본 호실 세팅
                     for (let r = 1; r <= count; r++) {
-                        addRoomInputBox(`${floor}${r.toString().padStart(2, '0')}호`);
+                        addRoomInputBox(`${floor}${r.toString().padStart(2, '0')}`);
                     }
                     
                     // 호실 추가 버튼 이벤트
                     floorSection.querySelector('.add-room-btn').addEventListener('click', () => {
-                        addRoomInputBox(`${floor}층 새호실`);
+                        addRoomInputBox(`${floor}00`);
                     });
                     
                     container.appendChild(floorSection);

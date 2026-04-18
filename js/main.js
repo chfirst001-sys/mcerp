@@ -241,7 +241,8 @@ onAuthStateChanged(auth, async (user) => {
             let roleWeight = 30; // 기본값 (일반 입주자)
             let role = 'tenant';
             if (userDoc.exists()) {
-                role = userDoc.data().role;
+                const userData = userDoc.data();
+                role = userData.role;
                 const roleWeights = {
                     'architect': 100, 'mc_header': 90, 'mc_front': 80,
                     'mega_admin': 70, 'mega_staff': 60,
@@ -250,23 +251,79 @@ onAuthStateChanged(auth, async (user) => {
                 };
                 roleWeight = roleWeights[role] || 30;
                 window.currentUserWeight = roleWeight; // 검색 권한 분기를 위해 전역 저장
+
+                // 건물 전용 사용자(관리인, 임원, 입주자)의 경우 로그인 시 무조건 본인 소속 건물로 강제 고정
+                if (roleWeight <= 50 && userData.buildingId) {
+                    localStorage.setItem('selectedBuildingId', userData.buildingId);
+                    localStorage.setItem('selectedBuildingName', userData.buildingName || '소속 건물');
+                }
             }
             
-            const adminTabs = document.querySelectorAll('.tab-item.admin-only');
-            if (roleWeight > 30) {
-                adminTabs.forEach(tab => tab.style.display = 'flex');
-                loadModule('dashboard'); // 관리자는 대시보드 화면을 먼저 띄움
+            // 직책별 권한 데이터(RBAC) 가져오기
+            let userPermissions = {};
+            try {
+                const permDoc = await getDoc(doc(db, "system", "permissions"));
+                if (permDoc.exists() && permDoc.data().roles && permDoc.data().roles[role]) {
+                    userPermissions = permDoc.data().roles[role];
+                }
+            } catch (e) { console.error("권한 설정 로드 실패:", e); }
+            
+            window.currentUserPermissions = userPermissions; // 다른 모듈에서 쓸 수 있도록 전역 저장
+
+            // 권한 체크 헬퍼 (DB에 값이 없으면 레거시 가중치를 이용해 기본값 부여)
+            const checkPerm = (permId, fallback) => {
+                if (userPermissions[permId]) return userPermissions[permId] !== 'none';
+                return fallback;
+            };
+
+            const isLegacyAdmin = roleWeight > 30;
+            const tabVisibility = {
+                'dashboard': roleWeight > 30 && checkPerm('view_dashboard', isLegacyAdmin), // 입주자는 탭 자체를 강제 숨김
+                'facility': checkPerm('view_facility', isLegacyAdmin),
+                'accounting': checkPerm('view_accounting', isLegacyAdmin),
+                'tenant': checkPerm('view_tenant', isLegacyAdmin),
+                'document': checkPerm('view_document', isLegacyAdmin),
+                'ai': checkPerm('view_ai_studio', role === 'architect'),
+                'nard': checkPerm('view_nard', true),
+                'schedule': checkPerm('view_schedule', true),
+                'kanban': checkPerm('view_kanban', true),
+                'plaza': checkPerm('view_plaza', true),
+                'life': checkPerm('view_life', true)
+            };
+
+            // 하단 탭 숨김/표시 처리
+            Object.keys(tabVisibility).forEach(tabId => {
+                const tabEl = document.querySelector(`.tab-item[data-module="${tabId}"]`);
+                if (tabEl) tabEl.style.display = tabVisibility[tabId] ? 'flex' : 'none';
+            });
+            
+            // 사이드바 메뉴 숨김/표시 처리
+            const sidebarVisibility = {
+                'building_select': checkPerm('view_building_select', isLegacyAdmin),
+                'building_register': checkPerm('view_building_register', roleWeight >= 70), // 메가관리자 이상 기본 허용
+                'member_manage': checkPerm('view_member_manage', isLegacyAdmin),
+                'db_manage': checkPerm('view_db_manage', role === 'architect'),
+                'settings': checkPerm('view_settings', true), // 환경 설정은 누구나 기본 허용
+                'ai_settings': checkPerm('view_ai_settings', role === 'architect')
+            };
+
+            document.querySelectorAll('.sidebar-menu li').forEach(item => {
+                const key = item.dataset.module || item.dataset.action;
+                if (key && sidebarVisibility[key] !== undefined) {
+                    item.style.display = sidebarVisibility[key] ? 'flex' : 'none';
+                }
+            });
+
+            // 허용된 첫 번째 탭으로 랜딩
+            if (roleWeight <= 30) {
+                // 입주자 및 일반 회원의 초기 화면은 무조건 나드 탭
+                loadModule('nard');
             } else {
-                adminTabs.forEach(tab => tab.style.display = 'none');
-                loadModule('plaza'); // 입주민/일반 유저는 광장 화면을 먼저 띄움
+                if (tabVisibility['dashboard']) loadModule('dashboard');
+                else if (tabVisibility['plaza']) loadModule('plaza');
+                else loadModule('nard');
             }
 
-            const architectTabs = document.querySelectorAll('.architect-only');
-            if (role === 'architect') {
-                architectTabs.forEach(tab => tab.style.display = 'flex');
-            } else {
-                architectTabs.forEach(tab => tab.style.display = 'none');
-            }
         } catch (e) {
             console.error("권한 확인 실패:", e);
             loadModule('plaza');

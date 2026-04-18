@@ -2,6 +2,12 @@ import { collection, getDocs, query, orderBy, doc, getDoc } from "https://www.gs
 import { db, escapeHtml } from "../js/main.js";
 
 export const init = (container) => {
+    // 권한 제한: 입주자 및 일반 회원(가중치 30 이하)은 대시보드 접근 원천 차단
+    if ((window.currentUserWeight || 0) <= 30) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #e74c3c; background: #fff; border-radius: 8px; border: 1px solid #eee; margin-top: 20px;"><span class="material-symbols-outlined" style="font-size: 40px; color: #e74c3c; margin-bottom: 10px;">block</span><br>대시보드에 접근할 권한이 없습니다.<br><span style="font-size: 12px; color: #7f8c8d; margin-top: 5px; display: inline-block;">건물 관리자 전용 메뉴입니다.</span></div>';
+        return;
+    }
+
     // 선택된 건물 정보 가져오기 (localStorage 활용)
     const selectedBuildingId = localStorage.getItem('selectedBuildingId');
     const selectedBuildingName = localStorage.getItem('selectedBuildingName') || '전체 건물';
@@ -22,6 +28,12 @@ export const init = (container) => {
 
 // [모드 1] 전체 건물 대시보드
 const renderAllBuildingsDashboard = (container) => {
+    // 권한 제한: 관리회사 혹은 본사 직원 이상만 전체 건물을 볼 수 있음
+    if ((window.currentUserWeight || 0) <= 50) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #e74c3c; background: #fff; border-radius: 8px; border: 1px solid #eee; margin-top: 20px;"><span class="material-symbols-outlined" style="font-size: 40px; color: #e74c3c; margin-bottom: 10px;">block</span><br>전체 건물 현황을 조회할 권한이 없습니다.<br><span style="font-size: 12px; color: #7f8c8d; margin-top: 5px; display: inline-block;">소속된 건물이 설정되지 않았습니다. 관리자에게 문의하세요.</span></div>';
+        return;
+    }
+
     container.innerHTML = `
         <h3>등록된 건물 현황</h3>
         <ul id="buildingList"></ul>

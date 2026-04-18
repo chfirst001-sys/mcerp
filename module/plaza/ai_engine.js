@@ -69,6 +69,9 @@ export const getAIResponse = async (text, model, vocab, classes, responsesMap) =
     let action = null;
     let combinedResponse = "";
     const usedTags = new Set();
+    
+    // 전역에 저장된 사용자 권한 확인 (기본적으로 모두 허용이되, 명시적으로 'none'이면 차단)
+    const hasTriggerPerm = window.currentUserPermissions ? window.currentUserPermissions.execute_ai_trigger !== 'none' : true;
 
     // 3. 최상위(1순위) 의도를 처리합니다. (신뢰도 40% 이상)
     if (scoresWithIndices.length > 0 && scoresWithIndices[0].score > 0.4) {
@@ -80,15 +83,20 @@ export const getAIResponse = async (text, model, vocab, classes, responsesMap) =
         // MCP 레지스트리에서 등록된 도구(Tool) 확인 및 실행
         const tool = mcpRegistry[topTag];
         if (tool) {
-            if (tool.type === 'data') {
-                const variables = await tool.execute(text);
-                for (const [key, value] of Object.entries(variables)) {
-                    baseResponse = baseResponse.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+            if (!hasTriggerPerm) {
+                combinedResponse = `[권한 알림] 죄송합니다. 해당 기능('${topTag}')을 실행할 권한이 부족합니다.`;
+                action = null;
+            } else {
+                if (tool.type === 'data') {
+                    const variables = await tool.execute(text);
+                    for (const [key, value] of Object.entries(variables)) {
+                        baseResponse = baseResponse.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+                    }
+                    combinedResponse = baseResponse;
+                } else if (tool.type === 'action') {
+                    combinedResponse = baseResponse || `[${topTag} 액션 실행]`;
+                    action = tool.actionName;
                 }
-                combinedResponse = baseResponse;
-            } else if (tool.type === 'action') {
-                combinedResponse = baseResponse || `[${topTag} 액션 실행]`;
-                action = tool.actionName;
             }
         } else if (baseResponse) {
             combinedResponse = baseResponse;
@@ -116,9 +124,13 @@ export const getAIResponse = async (text, model, vocab, classes, responsesMap) =
                     
                     // 서브 의도가 데이터 조회형 도구라면 변수 치환 실행
                     if (tool && tool.type === 'data') {
-                        const variables = await tool.execute(text);
-                        for (const [key, value] of Object.entries(variables)) {
-                            secondResponse = secondResponse.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+                        if (!hasTriggerPerm) {
+                            secondResponse += " (데이터 조회 권한 없음)";
+                        } else {
+                            const variables = await tool.execute(text);
+                            for (const [key, value] of Object.entries(variables)) {
+                                secondResponse = secondResponse.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+                            }
                         }
                     }
                     
