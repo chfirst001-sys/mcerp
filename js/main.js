@@ -5,7 +5,7 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from
 import CryptoJS from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm"; // 검색 시 암호화된 나드 복호화용
 
 // 앱 버전 (코드를 업데이트할 때마다 이 값을 변경하면 브라우저가 기존 캐시를 버리고 최신 파일을 불러옵니다)
-const APP_VERSION = "20260418_03";
+const APP_VERSION = "20260418_04";
 
 // Firebase 콘솔에서 발급받은 설정값
 const firebaseConfig = {
@@ -327,15 +327,8 @@ onAuthStateChanged(auth, async (user) => {
                 }
             });
 
-            // 허용된 첫 번째 탭으로 랜딩
-            if (roleWeight <= 30) {
-                // 입주자 및 일반 회원의 초기 화면은 무조건 나드 탭
-                loadModule('nard');
-            } else {
-                if (tabVisibility['dashboard']) loadModule('dashboard');
-                else if (tabVisibility['plaza']) loadModule('plaza');
-                else loadModule('nard');
-            }
+            // 모든 계정의 초기 화면을 나드 탭으로 고정
+            loadModule('nard');
 
         } catch (e) {
             console.error("권한 확인 실패:", e);
