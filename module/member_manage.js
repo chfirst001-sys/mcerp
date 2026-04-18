@@ -22,7 +22,8 @@ const PERMISSION_RESOURCES = {
         { id: "view_building_select", name: "건물선택" },
         { id: "view_building_register", name: "건물등록" },
         { id: "view_member_manage", name: "회원관리" },
-        { id: "view_db_manage", name: "DB관리" },
+        { id: "view_db_manage", name: "시스템DB" },
+        { id: "view_local_db", name: "로컬DB" },
         { id: "view_settings", name: "앱 환경 설정" },
         { id: "view_ai_settings", name: "AI 모델 설정" }
     ],

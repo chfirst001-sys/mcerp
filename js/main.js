@@ -5,7 +5,7 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from
 import CryptoJS from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm"; // 검색 시 암호화된 나드 복호화용
 
 // 앱 버전 (코드를 업데이트할 때마다 이 값을 변경하면 브라우저가 기존 캐시를 버리고 최신 파일을 불러옵니다)
-const APP_VERSION = "20260418_01";
+const APP_VERSION = "20260418_02";
 
 // Firebase 콘솔에서 발급받은 설정값
 const firebaseConfig = {
@@ -303,6 +303,7 @@ onAuthStateChanged(auth, async (user) => {
                 'building_register': checkPerm('view_building_register', roleWeight >= 70), // 메가관리자 이상 기본 허용
                 'member_manage': checkPerm('view_member_manage', isLegacyAdmin),
                 'db_manage': checkPerm('view_db_manage', role === 'architect'),
+                'local_db': checkPerm('view_local_db', true), // 로컬DB는 개인회원 모두 접근 가능
                 'settings': checkPerm('view_settings', true), // 환경 설정은 누구나 기본 허용
                 'ai_settings': checkPerm('view_ai_settings', role === 'architect')
             };

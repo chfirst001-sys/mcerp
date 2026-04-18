@@ -10,7 +10,7 @@ export const init = async (container) => {
     }
 
     // 2차 보안: 로그인 비밀번호 재확인
-    const userPwd = prompt("DB 통합 관리(최상위 보안 구역)에 접근하려면 현재 로그인된 계정의 비밀번호를 입력하세요.");
+    const userPwd = prompt("시스템DB(최상위 보안 구역)에 접근하려면 현재 로그인된 계정의 비밀번호를 입력하세요.");
     if (!userPwd) {
         container.innerHTML = `
             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100vh - 120px); background: #f8f9fa;">
@@ -39,7 +39,7 @@ export const init = async (container) => {
 
     container.innerHTML = `
         <div style="padding: 20px; height: calc(100vh - 120px); display: flex; flex-direction: column; background: #f4f6f8; box-sizing: border-box;">
-            <h2 style="color: #2c3e50; margin-top: 0;">데이터베이스 통합 관리 (GUI)</h2>
+            <h2 style="color: #2c3e50; margin-top: 0;">시스템DB 통합 관리 (설계자 전용)</h2>
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                 <select id="dbCollectionSelect" style="padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 14px; outline: none;">
                     <option value="users">users (회원 계정)</option>

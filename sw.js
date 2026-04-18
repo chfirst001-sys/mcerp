@@ -1,5 +1,5 @@
 // 버전을 변경하면 브라우저가 기존 캐시를 무효화하고 최신 파일로 갱신합니다.
-const CACHE_NAME = 'mcerp-cache-v14';
+const CACHE_NAME = 'mcerp-cache-v15';
 // 초기 캐싱할 정적 파일 목록
 const urlsToCache = [
     '/',
