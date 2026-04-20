@@ -5,7 +5,7 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from
 import CryptoJS from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm"; // 검색 시 암호화된 나드 복호화용
 
 // 앱 버전 (코드를 업데이트할 때마다 이 값을 변경하면 브라우저가 기존 캐시를 버리고 최신 파일을 불러옵니다)
-const APP_VERSION = "20260418_04";
+const APP_VERSION = "20260418_22";
 
 // Firebase 콘솔에서 발급받은 설정값
 const firebaseConfig = {
@@ -65,6 +65,53 @@ const sidebarMenuItems = document.querySelectorAll('.sidebar-menu li');
 let currentLoadedModule = null;
 
 const toggleNardModeHandler = () => { document.dispatchEvent(new CustomEvent('toggleNardMode')); };
+
+// 건물별 공유 나드를 사용자의 나드 트리에 병합하는 전역 동기화 함수
+window.syncSharedNardsToUser = async (userUid, buildingId) => {
+    try {
+        const bDoc = await getDoc(doc(db, "buildings", buildingId));
+        if (!bDoc.exists()) return;
+        const bData = bDoc.data();
+        const sharedNards = bData.sharedNards || [];
+        const bName = bData.name || bData.buildingName || '소속 건물';
+        
+        const userRef = doc(db, "users", userUid);
+        const userDoc = await getDoc(userRef);
+        if (!userDoc.exists()) return;
+        
+        let nardTree = userDoc.data().nardTree || userDoc.data().memoTree || [];
+        
+        const bldgNardId = `nard_bldg_${buildingId}`;
+        // 기본 건물 공유 노드 보장
+        if (!nardTree.some(n => n.id === bldgNardId)) {
+            nardTree.push({ id: bldgNardId, parentId: 'nard_shared_root', title: bName, content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
+        }
+        
+        const prefix = `nard_shared_item_${buildingId}_`;
+        const currentSharedIds = new Set(sharedNards.map(sn => prefix + sn.id));
+        
+        // 기존에 자동 생성되던 시설관리, 공식 광장 노드 및 삭제된 공유나드 일괄 제거
+        nardTree = nardTree.filter(n => {
+            if (n.id === `nard_fac_${buildingId}` || n.id.startsWith(`nard_fac_sub_`) || n.id.startsWith(`nard_fac_item_`)) return false;
+            if (n.id === `nard_plaza_${buildingId}` || n.id.startsWith(`nard_plaza_item_`)) return false;
+            if (n.parentId === bldgNardId && n.id.startsWith(prefix) && !currentSharedIds.has(n.id)) return false;
+            return true;
+        });
+        
+        // 최신 공유나드 갱신 및 추가
+        sharedNards.forEach(sn => {
+            const nardId = prefix + sn.id;
+            const existingIdx = nardTree.findIndex(n => n.id === nardId);
+            if (existingIdx >= 0) {
+                nardTree[existingIdx].title = sn.title; nardTree[existingIdx].content = sn.content; nardTree[existingIdx].updatedAt = sn.updatedAt;
+            } else {
+                nardTree.push({ id: nardId, parentId: bldgNardId, title: sn.title, content: sn.content, createdAt: sn.createdAt, updatedAt: sn.updatedAt, isEncrypted: false, isFavorite: false });
+            }
+        });
+        
+        await updateDoc(userRef, { nardTree });
+    } catch (err) { console.error("공유 나드 동기화 오류:", err); }
+};
 
 // 모듈 동적 로드 라우터 함수
 const loadModule = async (moduleName) => {

@@ -1,4 +1,4 @@
-import { collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { collection, getDocs, query, orderBy, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, escapeHtml } from "../js/main.js";
 
 export const init = (container) => {
@@ -58,23 +58,57 @@ export const init = (container) => {
                 const building = docSnap.data();
                 const bId = docSnap.id;
                 const isSelected = currentSelectedId === bId;
+                
+                const canDeleteBuilding = (window.currentUserWeight || 0) >= 70; // 메가관리자 또는 설계자 이상
 
                 const item = document.createElement('div');
                 item.className = 'module-card';
                 item.style.cssText = `cursor: pointer; transition: all 0.2s; display: flex; justify-content: space-between; align-items: center; border: 2px solid ${isSelected ? '#2980b9' : 'transparent'}; background-color: ${isSelected ? '#f0f8ff' : 'white'}; margin-bottom: 0;`;
 
                 item.innerHTML = `
-                    <div>
-                    <h3 style="margin: 0 0 5px 0; color: #2c3e50;">${escapeHtml(building.name)}</h3>
-                    <div style="font-size: 13px; color: #7f8c8d; margin-bottom: 5px;">📍 ${escapeHtml(building.address)}</div>
+                    <div style="flex: 1; min-width: 0;">
+                        <h3 style="margin: 0 0 5px 0; color: #2c3e50; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(building.name)}</h3>
+                        <div style="font-size: 13px; color: #7f8c8d; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">📍 ${escapeHtml(building.address)}</div>
                         <div style="font-size: 12px; display: flex; gap: 8px;">
-                            <span style="background: #e8f4f8; color: #2980b9; padding: 3px 8px; border-radius: 4px;">${affiliationMap[building.affiliation] || building.affiliation}</span>
-                            <span style="background: #f4f6f8; color: #34495e; padding: 3px 8px; border-radius: 4px;">${building.floors}층 / 총 ${building.roomsList ? building.roomsList.length : 0}개 호실</span>
+                            <span style="background: #e8f4f8; color: #2980b9; padding: 3px 8px; border-radius: 4px; white-space: nowrap;">${affiliationMap[building.affiliation] || building.affiliation}</span>
+                            <span style="background: #f4f6f8; color: #34495e; padding: 3px 8px; border-radius: 4px; white-space: nowrap;">${building.floors}층 / 총 ${building.roomsList ? building.roomsList.length : 0}호</span>
                         </div>
                     </div>
-                    <span class="material-symbols-outlined" style="color: ${isSelected ? '#2980b9' : '#e0e0e0'}; font-size: 28px;">check_circle</span>
+                    <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                        ${canDeleteBuilding ? `<button class="delete-building-btn" data-id="${bId}" data-name="${escapeHtml(building.name)}" style="background: none; border: none; color: #e74c3c; cursor: pointer; padding: 5px; display: flex; align-items: center; justify-content: center;" title="건물 삭제"><span class="material-symbols-outlined" style="font-size: 24px;">delete</span></button>` : ''}
+                        <span class="material-symbols-outlined" style="color: ${isSelected ? '#2980b9' : '#e0e0e0'}; font-size: 28px;">check_circle</span>
+                    </div>
                 `;
-                item.addEventListener('click', () => selectBuilding(bId, building.name));
+                
+                item.addEventListener('click', (e) => {
+                    if (e.target.closest('.delete-building-btn')) return;
+                    selectBuilding(bId, building.name);
+                });
+                
+                const delBtn = item.querySelector('.delete-building-btn');
+                if (delBtn) {
+                    delBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const targetId = e.currentTarget.dataset.id;
+                        const targetName = e.currentTarget.dataset.name;
+                        if (confirm(`정말 [${targetName}] 건물을 삭제하시겠습니까?\n이 건물과 연결된 모든 데이터가 삭제되며 복구할 수 없습니다.`)) {
+                            try {
+                                await deleteDoc(doc(db, "buildings", targetId));
+                                if (localStorage.getItem('selectedBuildingId') === targetId) {
+                                    localStorage.removeItem('selectedBuildingId');
+                                    localStorage.removeItem('selectedBuildingName');
+                                    const headerNameEl = document.getElementById('currentBuildingName');
+                                    if (headerNameEl) headerNameEl.textContent = '전체 건물';
+                                }
+                                alert(`${targetName} 건물이 성공적으로 삭제되었습니다.`);
+                                init(container);
+                            } catch (err) {
+                                console.error("건물 삭제 실패:", err);
+                                alert("삭제 중 오류가 발생했습니다.");
+                            }
+                        }
+                    });
+                }
                 listContainer.appendChild(item);
             });
         } catch (error) {

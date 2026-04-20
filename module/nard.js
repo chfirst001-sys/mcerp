@@ -135,6 +135,22 @@ export const init = (container) => {
                 </div>
             </div>
         </div>
+        
+        <!-- 나드 읽기 전용 뷰 -->
+        <div id="nardReadView" style="display: none; flex-direction: column; height: calc(100vh - 121px); background: white; margin: -14px -15px -20px -15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border-bottom: 1px solid #eee; flex-shrink: 0;">
+                <button id="closeReadViewBtn" style="background: none; border: none; color: #7f8c8d; cursor: pointer; display: flex; align-items: center; padding: 5px;"><span class="material-symbols-outlined">arrow_back</span></button>
+                <div style="display: flex; align-items: center;">
+                    <button id="gotoEditBtn" style="background: none; border: none; color: #2980b9; cursor: pointer; padding: 5px; display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: bold;">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">edit</span> 수정
+                    </button>
+                </div>
+            </div>
+            <div style="flex: 1; padding: 20px; overflow-y: auto; background: #fdfefe;">
+                <h2 id="readViewTitle" style="margin-top: 0; color: #2c3e50; word-break: break-all; border-bottom: 2px solid #eee; padding-bottom: 10px;"></h2>
+                <div id="readViewContent" style="font-size: 15px; color: #34495e; line-height: 1.6; white-space: pre-wrap; word-break: break-all;"></div>
+            </div>
+        </div>
     `;
 
     const treeContainer = document.getElementById('nardTreeContainer');
@@ -197,6 +213,27 @@ export const init = (container) => {
         }, 100);
     };
 
+    const openReadView = (id) => {
+        const nard = nardData.find(m => m.id === id);
+        if (!nard) return;
+        
+        document.getElementById('readViewTitle').textContent = nard.title || '제목 없음';
+        let htmlContent = nard.content || '<span style="color:#bdc3c7;">내용이 없습니다.</span>';
+        if (htmlContent && !/<\/?[a-z][\s\S]*>/i.test(htmlContent)) {
+            htmlContent = escapeHtml(htmlContent).replace(/\n/g, '<br>');
+        }
+        document.getElementById('readViewContent').innerHTML = htmlContent;
+        
+        document.getElementById('gotoEditBtn').onclick = () => {
+            document.getElementById('nardReadView').style.display = 'none';
+            openEditView(null, id);
+        };
+
+        listView.style.display = 'none';
+        editView.style.display = 'none';
+        document.getElementById('nardReadView').style.display = 'flex';
+    };
+
     const renderTree = () => {
         if (currentNardMode === 'memo' && !isSelectingParent) {
             // 메모(구글 Keep) 모드 렌더링
@@ -243,7 +280,10 @@ export const init = (container) => {
             treeContainer.innerHTML = html;
             treeContainer.style.textAlign = 'left';
             treeContainer.querySelectorAll('.memo-card').forEach(card => {
-                card.addEventListener('click', (e) => openEditView(null, e.currentTarget.dataset.id));
+                card.addEventListener('click', (e) => {
+                    if (e.currentTarget.classList.contains('temp-save-card')) return;
+                    openReadView(e.currentTarget.dataset.id);
+                });
             });
             treeContainer.querySelectorAll('.temp-save-card').forEach(card => {
                 card.addEventListener('click', () => {
@@ -416,6 +456,10 @@ export const init = (container) => {
                                         <div class="nard-title-box" data-id="${item.id}" style="font-weight: ${depth === 0 ? 'bold' : 'normal'}; font-size: 14px; color: ${hasChildren ? '#2c3e50' : '#34495e'}; cursor: pointer; display: flex; align-items: center; justify-content: flex-start; text-align: left; gap: 4px; white-space: ${isExpanded ? 'normal' : 'nowrap'}; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; width: 100%;" title="클릭하여 하위 나드 열기/닫기">
                                             ${escapeHtml(isExpanded ? (item.title || '') : shortTitle)}
                                         </div>
+                                        ${!fixedNode && item.content && !isExpanded ? `
+                                        <div class="nard-preview-text" data-id="${item.id}" style="font-size: 11px; color: #95a5a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; cursor: pointer; margin-top: 4px;" title="클릭하여 읽기 모드로 전체 보기">
+                                            ${escapeHtml(item.content.replace(/<[^>]*>?/gm, '').replace(/\n/g, ' ').trim())}
+                                        </div>` : ''}
                                         ${item.content ? `
                                         <div class="nard-content-box" data-id="${item.id}" style="display: ${isExpanded ? 'block' : 'none'}; width: 100%; text-align: left !important; font-size: 13px; color: #333; margin-top: 8px; line-height: 1.5; max-height: none; white-space: pre-wrap; word-break: break-all; cursor: pointer; background: transparent; padding: 0; border: none;" title="클릭하여 내용 전체보기/수정">${item.content || ''}</div>` : ''}
                                     </div>
@@ -580,9 +624,16 @@ export const init = (container) => {
             }));
         }
 
+        treeContainer.querySelectorAll('.nard-preview-text').forEach(el => el.addEventListener('click', (e) => {
+            if (isSelectingParent) return;
+            e.stopPropagation();
+            openReadView(e.currentTarget.dataset.id);
+        }));
+
         treeContainer.querySelectorAll('.nard-content-box').forEach(box => box.addEventListener('click', (e) => {
-            if (isFixedNode(e.currentTarget.dataset.id)) return;
-            openEditView(null, e.currentTarget.dataset.id);
+            if (isSelectingParent || isFixedNode(e.currentTarget.dataset.id)) return;
+            e.stopPropagation();
+            openReadView(e.currentTarget.dataset.id);
         }));
         treeContainer.querySelectorAll('.add-sub-btn').forEach(btn => btn.addEventListener('click', (e) => openEditView(e.currentTarget.dataset.id, null)));
         treeContainer.querySelectorAll('.edit-btn').forEach(btn => btn.addEventListener('click', (e) => openEditView(null, e.currentTarget.dataset.id)));
@@ -739,6 +790,12 @@ export const init = (container) => {
         editView.style.display = 'none';
         listView.style.display = 'block';
         // 닫은 후 목록을 새로고침하여 임시저장 카드 표시/숨김
+        renderTree();
+    });
+
+    document.getElementById('closeReadViewBtn').addEventListener('click', () => {
+        document.getElementById('nardReadView').style.display = 'none';
+        listView.style.display = 'block';
         renderTree();
     });
 

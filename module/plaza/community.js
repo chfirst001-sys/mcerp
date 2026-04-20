@@ -2,7 +2,8 @@ import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDoc
 import { db, auth, escapeHtml } from "../../js/main.js";
 
 let unsubscribePlaza = null;
-let currentPlazaBuildingId = null;
+let currentPlazaId = null;
+let currentPlazaType = null; // 'building' or 'plaza'
 let openedComments = new Set(); // 열려있는 댓글창 상태 유지용
 
 export const cleanup = () => {
@@ -25,19 +26,29 @@ export const render = async (container) => {
         }
     }
 
-    let buildings = [];
+    let plazaList = [];
     try {
-        const q = query(collection(db, "buildings"), orderBy("createdAt", "desc"));
-        const snap = await getDocs(q);
-        snap.forEach(docSnap => {
+        // 1. 공식 건물 광장 로드 (buildings 컬렉션)
+        const qBuilding = query(collection(db, "buildings"), orderBy("createdAt", "desc"));
+        const snapBuilding = await getDocs(qBuilding);
+        snapBuilding.forEach(docSnap => {
             const b = docSnap.data();
+            if (b.isCustomPlaza) return; // 이전 버전 잔재 데이터 무시
             if (['architect', 'mc_header', 'mc_front', 'admin', 'staff', 'mega_admin', 'mega_staff'].includes(userRole)) {
-                buildings.push({ id: docSnap.id, name: b.name });
-            } else {
-                const isInvitedMember = b.allowedEmails && auth.currentUser && b.allowedEmails.includes(auth.currentUser.email);
-                if (docSnap.id === userBuildingId || isInvitedMember) {
-                    buildings.push({ id: docSnap.id, name: b.name, data: b });
-                }
+                plazaList.push({ id: docSnap.id, name: b.name, type: 'building', data: b });
+            } else if (docSnap.id === userBuildingId) {
+                plazaList.push({ id: docSnap.id, name: b.name, type: 'building', data: b });
+            }
+        });
+
+        // 2. 사용자 생성 광장 로드 (plazas 컬렉션)
+        const qPlaza = query(collection(db, "plazas"), orderBy("createdAt", "desc"));
+        const snapPlaza = await getDocs(qPlaza);
+        snapPlaza.forEach(docSnap => {
+            const p = docSnap.data();
+            const isInvitedMember = p.allowedEmails && auth.currentUser && p.allowedEmails.includes(auth.currentUser.email);
+            if (['architect', 'admin'].includes(userRole) || isInvitedMember) {
+                plazaList.push({ id: docSnap.id, name: p.name, type: 'plaza', data: p });
             }
         });
     } catch (e) {
@@ -45,20 +56,32 @@ export const render = async (container) => {
     }
 
     let listHtml = '';
-    if (buildings.length > 0) {
-        buildings.forEach(b => {
+    if (plazaList.length > 0) {
+        plazaList.forEach((p, idx) => {
+            const isCustom = p.type === 'plaza';
+            
+            const isCreator = p.data && auth.currentUser && p.data.creatorUid === auth.currentUser.uid;
+            const hasDeletePerm = window.currentUserPermissions && window.currentUserPermissions['delete_plaza'] === 'write';
+            const canDeleteListPlaza = isCustom && (isCreator || hasDeletePerm || ['architect', 'admin'].includes(userRole));
+            
+            const rightActionHtml = canDeleteListPlaza 
+                ? `<button class="delete-plaza-list-btn" data-id="${p.id}" data-name="${escapeHtml(p.name)}" style="background:none; border:none; color:#e74c3c; padding:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="광장 삭제"><span class="material-symbols-outlined" style="font-size:24px;">delete</span></button>` 
+                : `<span class="material-symbols-outlined" style="color: #bdc3c7;">chevron_right</span>`;
+
             listHtml += `
-                <div class="plaza-list-item" data-id="${b.id}" data-name="${escapeHtml(b.name)}" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; background: #fff; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 15px; margin-bottom: 10px; transition: background 0.2s;" onmouseover="this.style.background='#f4f6f8'" onmouseout="this.style.background='#fff'">
+                <div class="plaza-list-item" data-idx="${idx}" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; background: #fff; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 15px; margin-bottom: 10px; transition: background 0.2s;" onmouseover="this.style.background='#f4f6f8'" onmouseout="this.style.background='#fff'">
                     <div style="background: #e8f4f8; color: #2980b9; width: 50px; height: 50px; border-radius: 12px; display: flex; justify-content: center; align-items: center; flex-shrink: 0;">
-                        <span class="material-symbols-outlined" style="font-size: 28px;">${b.data && b.data.isCustomPlaza ? 'groups' : 'domain'}</span>
+                        <span class="material-symbols-outlined" style="font-size: 28px;">${isCustom ? 'groups' : 'domain'}</span>
                     </div>
-                    <div style="flex: 1;">
+                    <div style="flex: 1; min-width: 0;">
                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
-                            <h4 style="margin: 0; color: #2c3e50; font-size: 15px;">${escapeHtml(b.name)}${b.data && b.data.isCustomPlaza ? '' : ' 공식 광장'}</h4>
+                            <h4 style="margin: 0; color: #2c3e50; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p.name)}${isCustom ? '' : ' 관리사무소'}</h4>
                         </div>
-                        <div style="font-size: 12px; color: #7f8c8d;">${b.data && b.data.description ? escapeHtml(b.data.description) : '입주민과 관리자가 소통하는 공간입니다.'}</div>
+                        <div style="font-size: 12px; color: #7f8c8d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.data && p.data.description ? escapeHtml(p.data.description) : '입주민과 관리자가 소통하는 공간입니다.'}</div>
                     </div>
-                    <span class="material-symbols-outlined" style="color: #bdc3c7;">chevron_right</span>
+                    <div style="display: flex; align-items: center;">
+                        ${rightActionHtml}
+                    </div>
                 </div>
             `;
         });
@@ -108,8 +131,41 @@ export const render = async (container) => {
         </div>
     `;
 
-    container.querySelectorAll('.plaza-list-item').forEach((item, idx) => {
-        item.addEventListener('click', () => openPlazaFeed(container, buildings[idx].id, buildings[idx].name, buildings[idx].data, userRole));
+    container.querySelectorAll('.plaza-list-item').forEach((item) => {
+        item.addEventListener('click', (e) => {
+            if (e.target.closest('.delete-plaza-list-btn')) return;
+            const idx = e.currentTarget.dataset.idx;
+            openPlazaFeed(container, plazaList[idx].id, plazaList[idx].name, plazaList[idx].data, userRole, plazaList[idx].type);
+        });
+    });
+    
+    container.querySelectorAll('.delete-plaza-list-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const targetId = e.currentTarget.dataset.id;
+            const targetName = e.currentTarget.dataset.name;
+            if (confirm(`'${targetName}' 광장을 정말 삭제하시겠습니까?\n(모든 게시물과 댓글이 함께 삭제되며 복구할 수 없습니다.)`)) {
+                try {
+                    await deleteDoc(doc(db, "plazas", targetId));
+                    
+                    const userRef = doc(db, "users", auth.currentUser.uid);
+                    const userDoc = await getDoc(userRef);
+                    if (userDoc.exists()) {
+                        let nardTree = userDoc.data().nardTree || [];
+                        const plazaRootId = `nard_plaza_${targetId}`;
+                        const bldgNardId = `nard_custom_${targetId}`;
+                        nardTree = nardTree.filter(n => n.id !== plazaRootId && n.parentId !== plazaRootId && n.id !== bldgNardId);
+                        await updateDoc(userRef, { nardTree });
+                    }
+
+                    alert('광장이 성공적으로 삭제되었습니다.');
+                    render(container); // 목록 새로고침
+                } catch (error) {
+                    console.error("광장 삭제 실패:", error);
+                    alert("광장 삭제에 실패했습니다.");
+                }
+            }
+        });
     });
 
     document.getElementById('createNewPlazaBtn').addEventListener('click', () => document.getElementById('createPlazaModal').style.display = 'flex');
@@ -125,7 +181,7 @@ export const render = async (container) => {
         btn.disabled = true; btn.textContent = '생성 중...';
         
         try {
-            await addDoc(collection(db, "buildings"), { 
+            await addDoc(collection(db, "plazas"), { 
                 name: name, 
                 description: desc, 
                 isCustomPlaza: true, 
@@ -157,7 +213,7 @@ export const render = async (container) => {
         searchResults.innerHTML = '<div style="text-align: center; color: #7f8c8d; font-size: 13px;">검색 중...</div>';
 
         try {
-            const q = query(collection(db, "buildings"), where("isPublic", "==", true));
+            const q = query(collection(db, "plazas"), where("isPublic", "==", true));
             const snap = await getDocs(q);
             
             let resultsHtml = '<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ccc; padding-bottom:8px; margin-bottom:5px;"><strong style="color:#2c3e50;">검색 결과</strong><button id="closeSearchPlazaBtn" style="background:none; border:none; cursor:pointer; color:#7f8c8d; font-size:12px;">닫기</button></div>';
@@ -199,12 +255,12 @@ export const render = async (container) => {
                     const targetId = e.currentTarget.dataset.id;
                     if (confirm('이 광장에 참여하시겠습니까?')) {
                         try {
-                            const pDoc = await getDoc(doc(db, "buildings", targetId));
+                            const pDoc = await getDoc(doc(db, "plazas", targetId));
                             if (pDoc.exists()) {
                                 let members = pDoc.data().allowedEmails || [];
                                 if (!members.includes(auth.currentUser.email)) {
                                     members.push(auth.currentUser.email);
-                                    await updateDoc(doc(db, "buildings", targetId), { allowedEmails: members });
+                                    await updateDoc(doc(db, "plazas", targetId), { allowedEmails: members });
                                     alert('광장에 성공적으로 참여했습니다!');
                                     render(container);
                                 }
@@ -229,8 +285,10 @@ export const render = async (container) => {
 
 // Nard 연동: 현재 광장의 게시물 데이터를 나드로 동기화
 const syncPlazaToNard = async () => {
-    if (!auth.currentUser || !currentPlazaBuildingId) return;
-    const bId = currentPlazaBuildingId;
+    if (!auth.currentUser || !currentPlazaId) return;
+    if (currentPlazaType === 'building') return; // 공식 건물 광장은 나드트리에 동기화 제외
+    const bId = currentPlazaId;
+    const colName = currentPlazaType === 'plaza' ? 'plazas' : 'buildings';
 
     try {
         const userRef = doc(db, "users", auth.currentUser.uid);
@@ -239,21 +297,21 @@ const syncPlazaToNard = async () => {
 
         let nardTree = userDoc.data().nardTree || [];
 
-        // 1. 기본 루트(건물, 광장) 보장
-        const bldgNardId = `nard_bldg_${bId}`;
+        const isCustom = currentPlazaType === 'plaza';
+        const bldgNardId = isCustom ? `nard_custom_${bId}` : `nard_bldg_${bId}`;
         const plazaRootNardId = `nard_plaza_${bId}`;
 
         if (!nardTree.some(n => n.id === bldgNardId)) {
-            const bDoc = await getDoc(doc(db, "buildings", bId));
-            const bName = bDoc.exists() ? (bDoc.data().name || bDoc.data().buildingName || '건물') : '건물';
+            const bDoc = await getDoc(doc(db, colName, bId));
+            const bName = bDoc.exists() ? (bDoc.data().name || bDoc.data().buildingName || '커뮤니티') : '커뮤니티';
             nardTree.push({ id: bldgNardId, parentId: 'nard_shared_root', title: bName, content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
         }
-        if (!nardTree.some(n => n.id === plazaRootNardId)) {
-            nardTree.push({ id: plazaRootNardId, parentId: bldgNardId, title: '광장', content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
+        if (!nardTree.some(n => n.id === plazaRootNardId) && !isCustom) {
+            nardTree.push({ id: plazaRootNardId, parentId: bldgNardId, title: '게시판', content: '', createdAt: Date.now(), updatedAt: Date.now(), isEncrypted: false, isFavorite: false });
         }
 
         // 2. 현재 광장의 모든 게시물 가져오기
-        const postsSnapshot = await getDocs(query(collection(db, "buildings", bId, "plaza_posts")));
+        const postsSnapshot = await getDocs(query(collection(db, colName, bId, "plaza_posts")));
         const currentPostIds = new Set();
         const currentPosts = [];
         postsSnapshot.forEach(postDoc => {
@@ -263,8 +321,9 @@ const syncPlazaToNard = async () => {
 
         // 3. 삭제된 항목을 Nard 트리에서 제거 (현재 건물 광장에 속한 것만)
         const nardPrefix = 'nard_plaza_item_';
+        const actualParentId = isCustom ? bldgNardId : plazaRootNardId;
         nardTree = nardTree.filter(n => {
-            if (n.parentId === plazaRootNardId) return currentPostIds.has(n.id.replace(nardPrefix, ''));
+            if (n.parentId === actualParentId) return currentPostIds.has(n.id.replace(nardPrefix, ''));
             return true;
         });
 
@@ -286,7 +345,7 @@ const syncPlazaToNard = async () => {
             if (existingIdx >= 0) {
                 nardTree[existingIdx].title = title; nardTree[existingIdx].content = content; nardTree[existingIdx].updatedAt = Date.now();
             } else {
-                nardTree.push({ id: nardId, parentId: plazaRootNardId, title: title, content: content, createdAt: post.createdAt ? post.createdAt.toMillis() : Date.now(), updatedAt: post.createdAt ? post.createdAt.toMillis() : Date.now(), isEncrypted: false, isFavorite: false });
+                nardTree.push({ id: nardId, parentId: actualParentId, title: title, content: content, createdAt: post.createdAt ? post.createdAt.toMillis() : Date.now(), updatedAt: post.createdAt ? post.createdAt.toMillis() : Date.now(), isEncrypted: false, isFavorite: false });
             }
         });
 
@@ -296,15 +355,17 @@ const syncPlazaToNard = async () => {
     }
 };
 
-const openPlazaFeed = (container, bId, bName, bData, userRole) => {
-    currentPlazaBuildingId = bId;
+const openPlazaFeed = (container, bId, bName, bData, userRole, type) => {
+    currentPlazaId = bId;
+    currentPlazaType = type;
+    const colName = type === 'plaza' ? 'plazas' : 'buildings';
     
     const isGlobalAdmin = ['architect', 'mc_header', 'mc_front', 'admin', 'staff', 'mega_admin', 'mega_staff'].includes(userRole);
-    const isPlazaAdmin = bData && bData.isCustomPlaza && (isGlobalAdmin || (bData.adminEmails && auth.currentUser && bData.adminEmails.includes(auth.currentUser.email)));
+    const isPlazaAdmin = type === 'plaza' && (isGlobalAdmin || (bData && bData.adminEmails && auth.currentUser && bData.adminEmails.includes(auth.currentUser.email)));
 
     const hasDeletePerm = window.currentUserPermissions && window.currentUserPermissions['delete_plaza'] === 'write';
     const isCreator = bData && auth.currentUser && bData.creatorUid === auth.currentUser.uid;
-    const canDeletePlaza = bData && bData.isCustomPlaza && (isCreator || hasDeletePerm || ['architect', 'admin'].includes(userRole));
+    const canDeletePlaza = type === 'plaza' && (isCreator || hasDeletePerm || ['architect', 'admin'].includes(userRole));
 
     container.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -316,7 +377,7 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
             </div>
             <div style="display: flex; gap: 5px;">
                 ${canDeletePlaza ? `<button id="deletePlazaBtn" style="background: #e74c3c; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">delete</span> 삭제</button>` : ''}
-                ${isPlazaAdmin ? `<button id="managePlazaBtn" style="background: #34495e; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">settings</span> 관리</button>` : ''}
+                ${type === 'plaza' ? `<button id="managePlazaBtn" style="background: #27ae60; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">person_add</span> 회원초대</button>` : ''}
                 <button id="writePostBtn" style="background: #f39c12; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
                     <span class="material-symbols-outlined" style="font-size: 16px;">edit_square</span> 글쓰기
                 </button>
@@ -324,10 +385,10 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
         </div>
         
         <div style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; overflow-x: auto; white-space: nowrap;" id="plazaCategoryFilters">
-            <span class="plaza-filter" data-cat="all" style="background: #e8f4f8; color: #2980b9; padding: 4px 12px; border-radius: 12px; font-size: 13px; cursor: pointer; font-weight: bold;">전체 피드</span>
-            <span class="plaza-filter" data-cat="공지" style="color: #7f8c8d; padding: 4px 12px; font-size: 13px; cursor: pointer;">📌 공지사항</span>
-            <span class="plaza-filter" data-cat="자유" style="color: #7f8c8d; padding: 4px 12px; font-size: 13px; cursor: pointer;">💬 자유게시판</span>
-            <span class="plaza-filter" data-cat="민원" style="color: #7f8c8d; padding: 4px 12px; font-size: 13px; cursor: pointer;">🛠️ 민원/수리요청</span>
+            <span class="plaza-filter" data-cat="all" style="background: #e8f4f8; color: #2980b9; padding: 4px 12px; border-radius: 12px; font-size: 13px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 4px;">전체 피드</span>
+            <span class="plaza-filter" data-cat="공지" style="color: #7f8c8d; padding: 4px 12px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">campaign</span> 공지사항</span>
+            <span class="plaza-filter" data-cat="자유" style="color: #7f8c8d; padding: 4px 12px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">chat</span> 자유게시판</span>
+            ${type === 'building' ? `<span class="plaza-filter" data-cat="민원" style="color: #7f8c8d; padding: 4px 12px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">build</span> 민원/수리요청</span>` : ''}
         </div>
 
         <div id="plazaPosts" style="display: flex; flex-direction: column; gap: 15px; padding-bottom: 20px;">
@@ -339,9 +400,9 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
             <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
                 <h3 style="margin-top: 0; color: #2c3e50;">새 게시물 작성</h3>
                 <select id="postCategory" style="margin-bottom: 10px; padding: 10px; width: 100%; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
-                    <option value="자유">💬 자유게시판</option>
-                    <option value="공지">📌 공지사항</option>
-                    <option value="민원">🛠️ 민원/수리요청</option>
+                    <option value="자유">자유게시판</option>
+                    <option value="공지">공지사항</option>
+                    ${type === 'building' ? `<option value="민원">민원/수리요청</option>` : ''}
                 </select>
                 <textarea id="postContent" placeholder="이웃들과 나누고 싶은 소식을 입력하세요..." style="width: 100%; height: 150px; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; resize: none; box-sizing: border-box; font-family: inherit; font-size: 14px;"></textarea>
                 <div style="display: flex; gap: 10px;">
@@ -355,7 +416,7 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
         <div id="managePlazaModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5000; justify-content: center; align-items: center;">
             <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h3 style="margin: 0; color: #2c3e50;">회원 관리 및 초대</h3>
+                    <h3 style="margin: 0; color: #2c3e50;">회원 초대 및 목록</h3>
                     <button id="closeManagePlazaBtn" style="background: none; border: none; padding: 0; cursor: pointer; color: #7f8c8d;"><span class="material-symbols-outlined">close</span></button>
                 </div>
                 <div style="display: flex; gap: 8px; margin-bottom: 15px;">
@@ -370,7 +431,8 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
     `;
 
     document.getElementById('backToPlazaListBtn').addEventListener('click', () => {
-        currentPlazaBuildingId = null;
+        currentPlazaId = null;
+        currentPlazaType = null;
         render(container);
     });
 
@@ -379,22 +441,21 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
         deletePlazaBtn.addEventListener('click', async () => {
             if (confirm(`'${bName}' 광장을 정말 삭제하시겠습니까?\n(모든 게시물과 댓글이 함께 삭제되며 복구할 수 없습니다.)`)) {
                 try {
-                    // 1. DB에서 광장 데이터 완전히 삭제
-                    await deleteDoc(doc(db, "buildings", currentPlazaBuildingId));
+                    await deleteDoc(doc(db, "plazas", currentPlazaId));
                     
-                    // 2. 현재 사용자의 나드(Nard) 트리에 연동되어 있던 광장 노드 정리
                     const userRef = doc(db, "users", auth.currentUser.uid);
                     const userDoc = await getDoc(userRef);
                     if (userDoc.exists()) {
                         let nardTree = userDoc.data().nardTree || [];
-                        const plazaRootId = `nard_plaza_${currentPlazaBuildingId}`;
-                        const bldgNardId = `nard_bldg_${currentPlazaBuildingId}`;
+                        const plazaRootId = `nard_plaza_${currentPlazaId}`;
+                        const bldgNardId = `nard_custom_${currentPlazaId}`;
                         nardTree = nardTree.filter(n => n.id !== plazaRootId && n.parentId !== plazaRootId && n.id !== bldgNardId);
                         await updateDoc(userRef, { nardTree });
                     }
 
                     alert('광장이 성공적으로 삭제되었습니다.');
-                    currentPlazaBuildingId = null;
+                    currentPlazaId = null;
+                    currentPlazaType = null;
                     render(container); // 광장 목록 화면으로 복귀
                 } catch (error) {
                     console.error("광장 삭제 실패:", error);
@@ -418,28 +479,27 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
         const category = document.getElementById('postCategory').value;
         if (!contentVal) return alert('내용을 입력해주세요.');
         if (!auth.currentUser) return alert('로그인이 필요합니다.');
-        if (!currentPlazaBuildingId) return alert('선택된 광장이 없습니다.');
+        if (!currentPlazaId) return alert('선택된 광장이 없습니다.');
 
         const btn = document.getElementById('savePostBtn');
         btn.disabled = true; btn.textContent = '등록 중...';
         
-        // 1공간 1프로필 정책 적용 (광장 ID별 고정)
-        let authorName = localStorage.getItem('lockedProfile_' + currentPlazaBuildingId);
+        let authorName = localStorage.getItem('lockedProfile_' + currentPlazaId);
         const defaultName = auth.currentUser.displayName || auth.currentUser.email.split('@')[0];
         const activeProfile = localStorage.getItem('activeProfileName') || defaultName;
 
         if (!authorName) {
             authorName = activeProfile;
-            localStorage.setItem('lockedProfile_' + currentPlazaBuildingId, authorName);
+            localStorage.setItem('lockedProfile_' + currentPlazaId, authorName);
         } else if (activeProfile !== authorName) {
             if (confirm(`안내: 이 광장에서는 기존에 '${authorName}' 프로필을 사용하셨습니다.\n\n새로 선택하신 '${activeProfile}' 프로필로 변경하여 활동하시겠습니까?\n(기존에 작성한 글의 닉네임은 소급 변경되지 않습니다.)`)) {
                 authorName = activeProfile;
-                localStorage.setItem('lockedProfile_' + currentPlazaBuildingId, authorName);
+                localStorage.setItem('lockedProfile_' + currentPlazaId, authorName);
             }
         }
 
         try {
-            await addDoc(collection(db, "buildings", currentPlazaBuildingId, "plaza_posts"), {
+            await addDoc(collection(db, colName, currentPlazaId, "plaza_posts"), {
                 authorUid: auth.currentUser.uid, authorEmail: auth.currentUser.email,
                 authorName: authorName,
                 category: category, content: contentVal, createdAt: serverTimestamp(), likes: 0, commentCount: 0
@@ -454,9 +514,9 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
         }
     });
 
-    if (isPlazaAdmin) {
+    if (type === 'plaza') {
         const loadManageMembers = async () => {
-            const pDoc = await getDoc(doc(db, "buildings", bId));
+            const pDoc = await getDoc(doc(db, "plazas", bId));
             if (pDoc.exists()) {
                 const pData = pDoc.data();
                 const members = pData.allowedEmails || [];
@@ -465,20 +525,22 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
                 listEl.innerHTML = members.map(email => `
                     <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
                         <span style="font-size: 13px; color: #34495e;">${escapeHtml(email)} ${admins.includes(email) ? '<span style="color:#e74c3c; font-size:11px; font-weight:bold;">(관리자)</span>' : ''}</span>
-                        ${email !== auth.currentUser.email ? `<button class="remove-member-btn" data-email="${email}" style="background: #fadbd8; color: #c0392b; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">추방</button>` : ''}
-                    </li>
+                         ${(isPlazaAdmin && email !== auth.currentUser.email) ? `<button class="remove-member-btn" data-email="${email}" style="background: #fadbd8; color: #c0392b; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">추방</button>` : ''}
+                        </li>
                 `).join('') || '<li style="padding: 10px; font-size: 12px; color: #95a5a6; text-align: center;">회원이 없습니다.</li>';
                 
-                listEl.querySelectorAll('.remove-member-btn').forEach(btn => {
-                    btn.addEventListener('click', async (e) => {
-                        const targetEmail = e.currentTarget.dataset.email;
-                        if(confirm(targetEmail + ' 님을 광장에서 추방하시겠습니까?')) {
-                            const newMembers = members.filter(m => m !== targetEmail);
-                            await updateDoc(doc(db, "buildings", bId), { allowedEmails: newMembers });
-                            loadManageMembers();
-                        }
-                    });
-                });
+                if (isPlazaAdmin) {
+                        listEl.querySelectorAll('.remove-member-btn').forEach(btn => {
+                            btn.addEventListener('click', async (e) => {
+                                const targetEmail = e.currentTarget.dataset.email;
+                                if(confirm(targetEmail + ' 님을 광장에서 추방하시겠습니까?')) {
+                                    const newMembers = members.filter(m => m !== targetEmail);
+                                    await updateDoc(doc(db, "plazas", bId), { allowedEmails: newMembers });
+                                    loadManageMembers();
+                                }
+                            });
+                        });
+                    }
             }
         };
 
@@ -488,9 +550,9 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
             const email = document.getElementById('inviteEmailInput').value.trim();
             if(!email) return alert('초대할 이메일을 입력하세요.');
             try {
-                const pDoc = await getDoc(doc(db, "buildings", bId));
+                const pDoc = await getDoc(doc(db, "plazas", bId));
                 let members = pDoc.data().allowedEmails || [];
-                if(!members.includes(email)) { members.push(email); await updateDoc(doc(db, "buildings", bId), { allowedEmails: members }); document.getElementById('inviteEmailInput').value = ''; loadManageMembers(); alert('초대되었습니다.'); } else alert('이미 초대된 회원입니다.');
+                if(!members.includes(email)) { members.push(email); await updateDoc(doc(db, "plazas", bId), { allowedEmails: members }); document.getElementById('inviteEmailInput').value = ''; loadManageMembers(); alert('초대되었습니다.'); } else alert('이미 초대된 회원입니다.');
             } catch(e) { console.error(e); alert('초대에 실패했습니다.'); }
         });
     }
@@ -509,7 +571,8 @@ const openPlazaFeed = (container, bId, bName, bData, userRole) => {
 
 const loadPlazaPosts = (bId, category) => {
     cleanup();
-    const q = query(collection(db, "buildings", bId, "plaza_posts"), orderBy("createdAt", "desc"));
+    const colName = currentPlazaType === 'plaza' ? 'plazas' : 'buildings';
+    const q = query(collection(db, colName, bId, "plaza_posts"), orderBy("createdAt", "desc"));
     unsubscribePlaza = onSnapshot(q, (snapshot) => {
         const postsDiv = document.getElementById('plazaPosts');
         if (!postsDiv) return;
@@ -617,7 +680,7 @@ const loadPlazaPosts = (bId, category) => {
                 const postId = e.currentTarget.dataset.id;
                 if (confirm('이 게시물을 정말 삭제하시겠습니까?')) {
                     try {
-                        await deleteDoc(doc(db, "buildings", currentPlazaBuildingId, "plaza_posts", postId));
+                        await deleteDoc(doc(db, colName, currentPlazaId, "plaza_posts", postId));
                         await syncPlazaToNard(); // Nard 동기화
                     } catch (error) {
                         console.error("게시물 삭제 실패:", error); alert("삭제에 실패했습니다.");
@@ -651,15 +714,15 @@ const loadPlazaPosts = (bId, category) => {
                 if (!text) return alert('댓글 내용을 입력하세요.');
                 if (!auth.currentUser) return alert('로그인이 필요합니다.');
 
-                let authorName = localStorage.getItem('lockedProfile_' + currentPlazaBuildingId);
+                let authorName = localStorage.getItem('lockedProfile_' + currentPlazaId);
                 const activeProfile = localStorage.getItem('activeProfileName') || (auth.currentUser.displayName || auth.currentUser.email.split('@')[0]);
-                if (!authorName) { authorName = activeProfile; localStorage.setItem('lockedProfile_' + currentPlazaBuildingId, authorName); }
+                if (!authorName) { authorName = activeProfile; localStorage.setItem('lockedProfile_' + currentPlazaId, authorName); }
 
                 const newComment = { id: 'cmt_' + Date.now(), authorUid: auth.currentUser.uid, authorName: authorName, text: text, createdAt: new Date().toISOString() };
 
                 try {
                     input.disabled = true;
-                    const postRef = doc(db, "buildings", currentPlazaBuildingId, "plaza_posts", postId);
+                    const postRef = doc(db, colName, currentPlazaId, "plaza_posts", postId);
                     const postSnap = await getDoc(postRef);
                     if (postSnap.exists()) {
                         const existingComments = postSnap.data().comments || [];
@@ -680,7 +743,7 @@ const loadPlazaPosts = (bId, category) => {
                 const cmtId = e.currentTarget.dataset.cmtid;
                 if (confirm('이 댓글을 삭제하시겠습니까?')) {
                     try {
-                        const postRef = doc(db, "buildings", currentPlazaBuildingId, "plaza_posts", postId);
+                        const postRef = doc(db, colName, currentPlazaId, "plaza_posts", postId);
                         const postSnap = await getDoc(postRef);
                         if (postSnap.exists()) {
                             let existingComments = postSnap.data().comments || [];

@@ -1,5 +1,5 @@
 import { collection, getDocs, query, orderBy, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { db, escapeHtml } from "../js/main.js";
+import { db, auth, escapeHtml } from "../js/main.js";
 
 export const init = (container) => {
     // 권한 제한: 입주자 및 일반 회원(가중치 30 이하)은 대시보드 접근 원천 차단
@@ -174,6 +174,7 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
             </div>
 
             <div id="dashboardBillingSection"></div>
+            <div id="sharedNardsSection" style="margin-bottom: 20px;"></div>
 
             ${unreadCount > 0 ? `
                 <div style="background: #e8f4f8; border-radius: 8px; padding: 12px 15px; border-left: 4px solid #2980b9; display: flex; align-items: center; justify-content: space-between; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05);" onclick="document.querySelector('.tab-item[data-module=\\'plaza\\']').click();">
@@ -329,6 +330,123 @@ const renderSingleBuildingDashboard = async (container, buildingId, buildingName
         };
 
         updateBillingSection(currentMonthStr);
+
+        // ---------------------------------------------------------
+        // 공유나드 관리 섹션 업데이트 로직
+        // ---------------------------------------------------------
+        const renderSharedNardsSection = () => {
+            const snSection = document.getElementById('sharedNardsSection');
+            if (!snSection) return;
+            
+            const sharedNards = bData.sharedNards || [];
+            
+            let listHtml = sharedNards.length === 0 ? 
+                '<div style="font-size:12px; color:#95a5a6; text-align:center; padding:20px;">등록된 공유나드가 없습니다.</div>' : 
+                sharedNards.map((sn, idx) => `
+                    <div style="background: white; border: 1px solid #eee; border-radius: 6px; padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-start; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                        <div style="flex: 1; overflow: hidden; padding-right: 10px;">
+                            <div style="font-size: 14px; font-weight: bold; color: #2c3e50; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(sn.title)}</div>
+                            <div style="font-size: 12px; color: #7f8c8d; white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${escapeHtml(sn.content)}</div>
+                        </div>
+                        <div style="display: flex; gap: 5px; flex-shrink: 0;">
+                            <button class="edit-sn-btn" data-idx="${idx}" style="background: #f0f3f4; color: #2980b9; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">수정</button>
+                            <button class="del-sn-btn" data-idx="${idx}" style="background: #fadbd8; color: #c0392b; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">삭제</button>
+                        </div>
+                    </div>
+                `).join('');
+
+            snSection.innerHTML = `
+                <div style="background: #fff; border-radius: 8px; padding: 15px; border: 1px solid #eee; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h4 style="margin: 0; color: #2c3e50; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+                            <span class="material-symbols-outlined" style="font-size: 18px; color: #8e44ad;">share</span> 
+                            건물 공유 나드 (입주자 전체 공유)
+                        </h4>
+                        <button id="addSharedNardBtn" style="background: #8e44ad; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 2px;">
+                            <span class="material-symbols-outlined" style="font-size: 14px;">add</span> 추가
+                        </button>
+                    </div>
+                    <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #f0f0f0; max-height: 300px; overflow-y: auto;">
+                        ${listHtml}
+                    </div>
+                </div>
+            `;
+            
+            const addBtn = document.getElementById('addSharedNardBtn');
+            if(addBtn) addBtn.addEventListener('click', () => openSharedNardModal(-1));
+            
+            snSection.querySelectorAll('.edit-sn-btn').forEach(btn => { btn.addEventListener('click', (e) => openSharedNardModal(parseInt(e.currentTarget.dataset.idx))); });
+            snSection.querySelectorAll('.del-sn-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    if (confirm('이 공유 나드를 삭제하시겠습니까? (건물 내 모든 사용자의 트리에서 일괄 삭제됩니다)')) {
+                        const idx = parseInt(e.currentTarget.dataset.idx);
+                        const sharedNards = bData.sharedNards || [];
+                        sharedNards.splice(idx, 1);
+                        await saveSharedNards(sharedNards);
+                    }
+                });
+            });
+        };
+
+        const saveSharedNards = async (list) => {
+            import("https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js").then(async ({ updateDoc }) => {
+                try {
+                    await updateDoc(doc(db, "buildings", buildingId), { sharedNards: list });
+                    bData.sharedNards = list;
+                    renderSharedNardsSection();
+                    if (window.syncSharedNardsToUser) await window.syncSharedNardsToUser(auth.currentUser.uid, buildingId);
+                } catch (err) { console.error(err); alert("저장에 실패했습니다."); }
+            });
+        };
+
+        const openSharedNardModal = (idx) => {
+            const sharedNards = bData.sharedNards || [];
+            let item = { title: '', content: '' };
+            if (idx >= 0) item = sharedNards[idx];
+            
+            let modal = document.getElementById('sharedNardModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'sharedNardModal';
+                modal.style.cssText = 'display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 6000; justify-content: center; align-items: center;';
+                modal.innerHTML = `
+                    <div style="background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+                        <h3 id="snModalTitle" style="margin-top: 0; color: #2c3e50; margin-bottom: 15px;">공유 나드 추가</h3>
+                        <input type="hidden" id="snIndex">
+                        <input type="text" id="snTitle" placeholder="나드 제목" style="width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;">
+                        <textarea id="snContent" placeholder="나드 내용을 입력하세요..." style="width: 100%; height: 120px; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; resize: none; font-family: inherit; font-size: 13px;"></textarea>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="saveSnBtn" style="flex: 1; background: #8e44ad; color: white; border: none; padding: 12px; border-radius: 4px; font-weight: bold; cursor: pointer;">저장</button>
+                            <button id="cancelSnBtn" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 12px; border-radius: 4px; font-weight: bold; cursor: pointer;">취소</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                
+                document.getElementById('cancelSnBtn').addEventListener('click', () => { modal.style.display = 'none'; });
+                document.getElementById('saveSnBtn').addEventListener('click', async () => {
+                    const title = document.getElementById('snTitle').value.trim();
+                    const content = document.getElementById('snContent').value.trim();
+                    if (!title) return alert('제목을 입력하세요.');
+                    
+                    const i = parseInt(document.getElementById('snIndex').value);
+                    const list = bData.sharedNards || [];
+                    if (i >= 0) { list[i].title = title; list[i].content = content; list[i].updatedAt = Date.now(); } 
+                    else { list.push({ id: Date.now().toString(), title, content, createdAt: Date.now(), updatedAt: Date.now() }); }
+                    
+                    modal.style.display = 'none';
+                    await saveSharedNards(list);
+                });
+            }
+            
+            document.getElementById('snModalTitle').textContent = idx >= 0 ? '공유 나드 수정' : '공유 나드 추가';
+            document.getElementById('snIndex').value = idx;
+            document.getElementById('snTitle').value = item.title;
+            document.getElementById('snContent').value = item.content;
+            modal.style.display = 'flex';
+        };
+
+        renderSharedNardsSection();
 
     } catch (error) {
         console.error("대시보드 로드 실패:", error);
